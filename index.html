@@ -17,6 +17,7 @@
     --case: #c6d7ee;
     --metal: #6f93c4;
     --water: #9cc4ee;
+    --fuel: #e9b98f;
     --grid: rgba(27, 75, 138, 0.08);
     --fire: #d4511c;
     --display: "Architects Daughter", "Patrick Hand", "Comic Sans MS", cursive;
@@ -25,13 +26,13 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --paper: #143c6e; --ink: #eaf2fb; --soft: #b5cbe6; --fill: #1d4c87;
-      --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2;
+      --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2; --fuel: #c98a52;
       --grid: rgba(255, 255, 255, 0.07); --fire: #ffb057; color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
     --paper: #143c6e; --ink: #eaf2fb; --soft: #b5cbe6; --fill: #1d4c87;
-    --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2;
+    --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2; --fuel: #c98a52;
     --grid: rgba(255, 255, 255, 0.07); --fire: #ffb057; color-scheme: dark;
   }
 
@@ -82,6 +83,7 @@
     touch-action: pan-y; cursor: grab; user-select: none; -webkit-user-select: none;
   }
   .stage.drag { cursor: grabbing; }
+  .stage.tall { height: clamp(540px, 56vw, 700px); }
   .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #leads { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #leads line { stroke: var(--ink); stroke-width: 1.4; stroke-linecap: round; transition: opacity 0.3s; }
@@ -749,6 +751,140 @@
   }
 
   // =====================================================================
+  // machine 3: flying fire tower (rocket)
+  // =====================================================================
+  function buildRocket() {
+    var root = new THREE.Group();
+    function lathe(pts, seg) { return new THREE.LatheGeometry(prof(pts, 0, true), seg || 56); }
+    function rodX(r, len) { var g = new THREE.CylinderGeometry(r, r, len, 14); g.rotateZ(Math.PI / 2); return g; }
+    function discZ(r, t) { var g = new THREE.CylinderGeometry(r, r, t, 28); g.rotateX(Math.PI / 2); return g; }
+
+    // outside skin with the pointed top; outlines here are [how high, how far from the middle]
+    addCut(root, lathe([[-170,80],[250,80],[310,62],[365,34],[398,8],[400,0],[394,0],[392,6],[360,30],[308,57],[249,76],[-170,76]]));
+
+    // two big cans and what is in them
+    function tankPts(y0, y1) {
+      return [[y0,0],[y0+6,30],[y0+18,55],[y0+38,72],[y1-38,72],[y1-18,55],[y1-6,30],[y1,0],
+              [y1-3,0],[y1-9,28],[y1-20,52],[y1-39,69],[y0+39,69],[y0+20,52],[y0+9,28],[y0+3,0]];
+    }
+    function liquid(y0, y1, cssName, grey) {
+      var plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), y1), cl = [cutPlane, plane];
+      var m = new THREE.MeshLambertMaterial({ clippingPlanes: cl });
+      var cap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: cl });
+      var nm = new THREE.MeshNormalMaterial({ clippingPlanes: cl });
+      var ncap = new THREE.MeshBasicMaterial({ color: grey, side: THREE.BackSide, clippingPlanes: cl });
+      function theme() { m.color.set(cssVar(cssName)); cap.color.set(cssVar(cssName)); }
+      themeFns.push(theme); theme();
+      var geo = lathe([[y0+4,0],[y0+10,27],[y0+21,50.5],[y0+40,67.5],[y1-40,67.5],[y1-21,50.5],[y1-10,27],[y1-4,0]]);
+      var a = new THREE.Mesh(geo, m); a.userData.n = nm; root.add(a);
+      var b = new THREE.Mesh(geo, cap); b.userData.n = ncap; root.add(b);
+      return { plane: plane, lo: y0 + 4, hi: y1 - 4 };
+    }
+    addCut(root, lathe(tankPts(60, 235)));
+    addCut(root, lathe(tankPts(-130, 35)));
+    var cold = liquid(60, 235, '--water', 0x555555), fuel = liquid(-130, 35, '--fuel', 0x888888);
+
+    // the thing it carries, up in the pointed top
+    addWhole(root, new THREE.BoxGeometry(44, 44, 44), mat.metal).position.y = 285;
+    [-42, 42].forEach(function (x) { addWhole(root, new THREE.BoxGeometry(38, 16, 2), mat.body).position.set(x, 285, 0); });
+
+    // pipes: cold air comes down through the middle of the fire water can
+    addWhole(root, new THREE.CylinderGeometry(6, 6, 212, 14), mat.metal).position.y = -45;
+    addWhole(root, rodX(6, 34), mat.metal).position.set(-15, -150, 0);
+    addWhole(root, new THREE.CylinderGeometry(6, 6, 30, 14), mat.metal).position.set(30, -138, 0);
+    [-22, 22].forEach(function (x) { addWhole(root, new THREE.CylinderGeometry(5, 5, 16, 12), mat.metal).position.set(x, -186, 0); });
+
+    // pushing wheels, joined by one small stick so they turn together
+    var wheels = [-30, 30].map(function (x) {
+      var g = new THREE.Group();
+      g.position.set(x, -168, 0);
+      addWhole(g, discZ(16, 9), mat.body);
+      for (var i = 0; i < 6; i++) {
+        var bl = addWhole(g, new THREE.BoxGeometry(13, 3, 12), mat.metal), a = i * Math.PI / 3;
+        bl.position.set(9 * Math.cos(a), 9 * Math.sin(a), 0);
+        bl.rotation.z = a + 0.5;
+      }
+      root.add(g);
+      return g;
+    });
+    addWhole(root, rodX(3, 60), mat.metal).position.set(0, -168, -8);
+
+    // fire room and bell, one piece
+    addCut(root, lathe(chaikin([[-190,0],[-190,36],[-240,36],[-262,18],[-300,44],[-340,64],
+                                [-340,60],[-300,40],[-262,13],[-240,31],[-195,31],[-195,0]])));
+
+    // little wings
+    var fin = new THREE.Shape();
+    [[78,-60],[78,-170],[140,-205],[140,-150],[78,-60]].forEach(function (p, i) { if (i) fin.lineTo(p[0], p[1]); else fin.moveTo(p[0], p[1]); });
+    var finGeo = new THREE.ExtrudeGeometry(fin, { depth: 6, bevelEnabled: false });
+    finGeo.translate(0, 0, -3);
+    for (var k = 0; k < 4; k++) addCut(root, finGeo).rotation.y = Math.PI / 4 + k * Math.PI / 2;
+
+    // fire: a ball in the fire room and a long tail out of the bell
+    var ball = new THREE.Mesh(new THREE.SphereGeometry(25, 20, 14), mat.flame2);
+    ball.position.y = -220;
+    root.add(ball);
+    var tailA = new THREE.Mesh(new THREE.LatheGeometry(prof([[0,0],[0,56],[-60,50],[-140,30],[-200,0]], 0, false), 32), mat.flame);
+    var tailB = new THREE.Mesh(new THREE.LatheGeometry(prof([[0,0],[0,30],[-50,26],[-110,14],[-150,0]], 0, false), 32), mat.flame2);
+    tailA.position.y = tailB.position.y = -338;
+    root.add(tailA); root.add(tailB);
+
+    // fast lines of hot air shooting down
+    var N = 150, parts = [], L = lineSet(root, N, mat.dots);
+    var RAD = [[195,28],[240,28],[262,11],[300,36],[340,55],[700,105]], VEL = [[195,90],[262,320],[340,680],[700,680]];
+    function spawn(p, far) { p.y = -200 - (far ? rnd(0, 440) : rnd(0, 30)); p.u = Math.sqrt(Math.random()); p.a = rnd(0, Math.PI * 2); p.dead = false; p.v = 100; }
+    for (var i = 0; i < N; i++) { var p = {}; spawn(p, true); parts.push(p); }
+
+    var level = 1, phase = 'burn', wait = 0, flameT = 0, burn = S.f;
+    function flicker() {
+      var on = phase === 'burn';
+      tailA.scale.y = on ? (0.55 + 0.5 * S.f) * rnd(0.9, 1.1) : 0.001;
+      tailB.scale.y = on ? (0.55 + 0.5 * S.f) * rnd(0.8, 1.15) : 0.001;
+      var s = on ? rnd(0.9, 1.08) : 0.001;
+      ball.scale.set(s, s, s);
+    }
+    function setLevels() {
+      cold.plane.constant = cold.lo + level * (cold.hi - cold.lo);
+      fuel.plane.constant = fuel.lo + level * (fuel.hi - fuel.lo);
+    }
+    setLevels(); flicker();
+
+    return {
+      root: root,
+      update: function (dt) {
+        if (phase === 'burn') { level -= 0.045 * S.f * dt; if (level <= 0.04) { phase = 'out'; wait = 0; flicker(); } }
+        else if (phase === 'out') { wait += dt; if (wait > 1.4) phase = 'fill'; }
+        else { level += dt / 1.5; if (level >= 1) { level = 1; phase = 'burn'; } }
+        setLevels();
+        burn = phase === 'burn' ? S.f : 0;
+        wheels[0].rotation.z += 9 * burn * dt;
+        wheels[1].rotation.z -= 9 * burn * dt;
+        flameT += dt;
+        if (flameT > 0.09) { flameT = 0; flicker(); }
+        for (var i = 0; i < N; i++) {
+          var p = parts[i];
+          if (p.dead) { if (burn > 0 && Math.random() < 0.2) spawn(p, false); continue; }
+          p.v = at(VEL, -p.y) * Math.max(S.f, 0.4);
+          p.y -= p.v * dt;
+          if (p.y < -640) { if (burn > 0) spawn(p, false); else p.dead = true; }
+        }
+      },
+      draw: function () {
+        for (var i = 0; i < N; i++) {
+          var p = parts[i];
+          if (p.dead) { L.put(i, 0, 0, 0, 0, 0, 0); L.paint(i, 1, 0); continue; }
+          var len = Math.max(5, p.v * 0.05), c = Math.cos(p.a), s = Math.sin(p.a);
+          var r0 = at(RAD, -(p.y + len)) * p.u, r1 = at(RAD, -p.y) * p.u;
+          L.put(i, r0 * c, p.y + len, r0 * s, r1 * c, p.y, r1 * s);
+          L.paint(i, 1, clamp(Math.min((-p.y - 195) / 30, (640 + p.y) / 260), 0, 1) * 0.95);
+        }
+        L.flush();
+      },
+      fuelChanged: flicker
+    };
+  }
+
+  // =====================================================================
   // what each machine says about itself
   // =====================================================================
   var DEFS = {
@@ -814,9 +950,39 @@
               ['Sliding door', 'slide valve'], ['Push room', 'cylinder'], ['Pushing block', 'piston'], ['Arm', 'connecting rod'],
               ['Door arm', 'eccentric rod'], ['Heavy wheel', 'flywheel'], ['Out pipe', 'exhaust'], ['Small door on top', 'safety valve']],
       fine: 'The outside is cut open, but the moving parts are left whole. The push room is drawn as a box so you can see into it. Real ones are round, and the small door on top of the water room is left out of the drawing.'
+    },
+    rocket: {
+      title: 'Flying Fire Tower', tsub: 'what people call a rocket',
+      sub: 'The machine that throws fire down so hard that it climbs up, all the way to space.',
+      corner: 'It pushes on its own fire, so it works where there is no air',
+      build: buildRocket, tall: true, cam: { cx: 0, cy: -30, hw: 430, hh: 455, az: -0.4, el: 0.12 }, cutMax: 85, pane: [420, 820],
+      fuelLabel: 'How much goes into the fire', barLabel: 'How hard it pushes up', barLo: 'soft', barHi: 'hard',
+      bar: function (f) { return f / 1.7; },
+      steps: [
+        ['The whole thing', 'A flying fire tower is mostly two big cans. One holds fire water. The other holds air made so cold that you can pour it. The two meet in a small room at the bottom and burn, and the fire shoots down out of the open end. Throwing fire down is what pushes the tower up. Press a name on the drawing to hear about that part.'],
+        ['1. Bring your own air', 'Fire needs air to burn, and up in space there is none. So the tower carries its own, made very cold so that a lot of it fits in a can. Almost everything you see from the outside is these two cans. The part that goes to space is the small thing at the very top.'],
+        ['2. Push it in fast', 'Two wheels turn very fast and push the fire water and the cold air down into the fire room. A very big tower can use up enough to fill a pool in half a minute, so the cans are empty after only a few minutes.'],
+        ['3. Burn it', 'In the fire room the two mix and burn. The fire is hotter than anything in a kitchen, hot enough to turn the room itself soft, so the fire water is first sent around the outside of the walls to keep them cool.'],
+        ['4. Shoot it down', 'The hot air can only leave through one small opening, and after that the walls open wide like a bell. That shape makes it go faster than sound. The more stuff it throws down, and the faster, the harder the tower is pushed up. It is not pushing on the ground or on the air. It is pushing on its own fire.']
+      ],
+      tags: [
+        ['Thing it carries', [0, 285], [-255, 335], 1, 'Thing it carries: this small box is the only part that is meant to get to space. Everything under it is there just to lift it.'],
+        ['Cold air can', [-40, 160], [-270, 185], 1, 'Cold air can: air made so cold that you can pour it like water. Fire needs air to burn and space has none, so the tower brings its own.'],
+        ['Fire water can', [40, -40], [270, 30], 1, 'Fire water can: this holds the stuff that burns. It is a lot like what goes into the fire wind pusher on a flying machine.'],
+        ['Middle pipe', [-6, -80], [-270, -60], 2, 'Middle pipe: the cold air runs down a pipe right through the middle of the fire water can to reach the bottom.'],
+        ['Pushing wheels', [30, -168], [270, -140], 2, 'Pushing wheels: they turn very fast and push fire water and cold air into the fire room much faster than they would fall in by themselves.'],
+        ['Fire room', [0, -220], [-270, -225], 3, 'Fire room: fire water and cold air mix here and burn. It is small, but all the pushing starts here.'],
+        ['Bell', [48, -315], [270, -305], 4, 'Bell: the hot air leaves through a small opening and then the walls open wide. This shape makes the hot air go faster than sound.'],
+        ['Little wings', [-85, -185, -85], [-270, -350], 4, 'Little wings: they keep the tower pointing the right way while it is still down in the air.']
+      ],
+      loose: [['Tower goes up &uarr;', 190, 370], ['Fire goes down &darr;', 170, -440], ['Don\'t stand<br>under it', -170, -440, 1]],
+      gloss: [['Flying fire tower', 'rocket'], ['Fire water', 'fuel (like kerosene)'], ['Cold air you can pour', 'liquid oxygen'],
+              ['Pushing wheels', 'turbopumps'], ['Fire room', 'combustion chamber'], ['Bell', 'nozzle'],
+              ['Thing it carries', 'payload'], ['Little wings', 'fins']],
+      fine: 'When the cans are empty the fire stops. This one fills up again by itself so you can keep watching. Real ones let go of their empty cans on the way up so there is less to carry, and then light a smaller tower that was riding on top.'
     }
   };
-  var ORDER = ['jet', 'steam'];
+  var ORDER = ['jet', 'steam', 'rocket'];
   function inst(id) {
     var d = DEFS[id];
     if (!d.m) {
@@ -972,6 +1138,7 @@
     cur = inst(id);
     scene.add(cur.m.root);
     homeEl.hidden = true; machineEl.hidden = false;
+    stage.classList.toggle('tall', !!cur.tall);
     $('mTitle').textContent = cur.title; $('mSub').textContent = cur.sub; $('corner').innerHTML = cur.corner;
     $('fuelLabel').textContent = cur.fuelLabel; $('barLabel').textContent = cur.barLabel;
     $('barLo').textContent = cur.barLo; $('barHi').textContent = cur.barHi;
