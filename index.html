@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Small Words Machines</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Patrick+Hand&display=swap">
+<style>
+  /* Layout: a grid of machine tiles; each tile opens one big turnable pen drawing with name tags and controls. */
+  :root {
+    --paper: #f4f7fb;
+    --ink: #1b4b8a;
+    --soft: #4f71a1;
+    --fill: #dfe8f4;
+    --case: #c6d7ee;
+    --metal: #6f93c4;
+    --water: #9cc4ee;
+    --grid: rgba(27, 75, 138, 0.08);
+    --fire: #d4511c;
+    --display: "Architects Daughter", "Patrick Hand", "Comic Sans MS", cursive;
+    --body: "Patrick Hand", "Architects Daughter", "Comic Sans MS", cursive;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #143c6e; --ink: #eaf2fb; --soft: #b5cbe6; --fill: #1d4c87;
+      --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2;
+      --grid: rgba(255, 255, 255, 0.07); --fire: #ffb057; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #143c6e; --ink: #eaf2fb; --soft: #b5cbe6; --fill: #1d4c87;
+    --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2;
+    --grid: rgba(255, 255, 255, 0.07); --fire: #ffb057; color-scheme: dark;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 19px;
+    line-height: 1.35;
+    padding-block: 28px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .sheet { max-width: 1240px; margin: 0 auto; }
+  .view { display: flex; flex-direction: column; gap: 22px; }
+
+  header { display: flex; flex-direction: column; gap: 6px; }
+  h1 {
+    font-family: var(--display); font-weight: 400; text-transform: uppercase;
+    font-size: clamp(30px, 6vw, 58px); line-height: 1; letter-spacing: 0.03em;
+    margin: 0; text-wrap: balance;
+  }
+  .sub { margin: 0; font-size: clamp(19px, 2.4vw, 24px); max-width: 60ch; }
+  .aside { margin: 0; color: var(--soft); font-size: 17px; max-width: 65ch; }
+
+  /* home grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 20px; }
+  .tile {
+    display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 14px;
+    color: var(--ink); text-decoration: none; background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  .tile:hover { background: var(--fill); }
+  .tile:focus-visible, .back:focus-visible { outline: 3px solid var(--fire); outline-offset: 3px; }
+  .tile canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; border-bottom: 2px dashed var(--ink); margin-bottom: 6px; }
+  .tname { font-family: var(--display); font-size: 21px; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.1; }
+  .tsub { color: var(--soft); font-size: 17px; }
+
+  .back { align-self: flex-start; color: var(--ink); font-family: var(--display); font-size: 15px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+  .stage {
+    position: relative; overflow: hidden;
+    height: clamp(380px, 56vw, 660px);
+    border: 2px solid var(--ink);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background-color: var(--paper);
+    touch-action: pan-y; cursor: grab; user-select: none; -webkit-user-select: none;
+  }
+  .stage.drag { cursor: grabbing; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #leads { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #leads line { stroke: var(--ink); stroke-width: 1.4; stroke-linecap: round; transition: opacity 0.3s; }
+  #leads circle { fill: var(--ink); transition: opacity 0.3s; }
+  .chip, .tag {
+    position: absolute; left: 0; top: 0; white-space: nowrap;
+    font-family: var(--display); font-size: clamp(10.5px, 1.25vw, 14px);
+    letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.15;
+    transition: opacity 0.3s;
+  }
+  .chip { padding: 3px 8px; background: var(--paper); }
+  .tag { color: var(--ink); text-align: center; text-shadow: 0 0 4px var(--paper), 0 0 4px var(--paper); pointer-events: none; }
+  .tag.warn { color: var(--fire); }
+  .stage.focus .chip:not(.on) { opacity: 0.28; }
+  .corner {
+    position: absolute; margin: 0; pointer-events: none;
+    font-family: var(--display); font-size: clamp(10.5px, 1.25vw, 14px); letter-spacing: 0.04em; text-transform: uppercase;
+    text-shadow: 0 0 4px var(--paper), 0 0 4px var(--paper);
+  }
+  .corner.push { top: 12px; right: 22px; text-align: right; }
+  .corner.hint { bottom: 10px; right: 22px; color: var(--soft); }
+  .nogl { margin: 0; max-width: 60ch; }
+
+  /* controls */
+  .controls { display: flex; flex-direction: column; gap: 16px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 10px; }
+  button {
+    font-family: var(--display); font-size: 15px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--ink); background: transparent; cursor: pointer;
+    border: 2px solid var(--ink); padding: 8px 14px;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  button.chip { border-width: 1.5px; }
+  button:hover { background: var(--fill); }
+  button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--fire); outline-offset: 3px; }
+  #stepText { margin: 0; font-size: 21px; max-width: 65ch; min-height: 4.1em; }
+
+  .knobs { display: flex; flex-wrap: wrap; gap: 14px 32px; align-items: center; }
+  .knob { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 230px; max-width: 360px; }
+  .knob label, .knob .cap { font-family: var(--display); font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .knob input[type="range"] { width: 100%; accent-color: var(--fire); }
+  .ends { display: flex; justify-content: space-between; color: var(--soft); font-size: 16px; }
+  .bar { height: 16px; border: 2px solid var(--ink); border-radius: 12px 3px 10px 3px / 3px 10px 3px 12px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 40%; background: var(--fire); transition: width 0.2s; }
+
+  footer { border-top: 2px dashed var(--ink); padding-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+  footer h2 { font-family: var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.05em; text-transform: uppercase; margin: 0; }
+  dl { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 28px; }
+  dl div { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+  dt { font-family: var(--display); font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; }
+  dd { margin: 0; color: var(--soft); }
+  dd::before { content: "= "; }
+  .fine { margin: 0; color: var(--soft); font-size: 17px; max-width: 70ch; }
+</style>
+
+</head>
+<body>
+<main class="sheet">
+  <section class="view" id="home">
+    <header>
+      <h1>Big machines, small words</h1>
+      <p class="sub">How big machines work, told with only the words people use most.</p>
+      <p class="aside">Pick one to open it. Inside, you can turn it around and cut it open.</p>
+    </header>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="view" id="machine" hidden>
+    <a class="back" href="#home">&larr; All machines</a>
+    <header>
+      <h1 id="mTitle"></h1>
+      <p class="sub" id="mSub"></p>
+      <p class="aside">Turn it around with your finger, then slide the cut to open it up and see inside.</p>
+    </header>
+
+    <div class="stage" id="stage">
+      <canvas id="view" aria-label="A model of the machine that you can turn around and cut open."></canvas>
+      <svg id="leads" aria-hidden="true">
+        <defs>
+          <filter id="boil" filterUnits="userSpaceOnUse" x="0" y="0" width="1200" height="660">
+            <feTurbulence id="turb" type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="1" result="n"/>
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G"/>
+          </filter>
+        </defs>
+        <g id="leadG" filter="url(#boil)"></g>
+      </svg>
+      <p class="corner push" id="corner"></p>
+      <p class="corner hint">Drag to turn it</p>
+    </div>
+
+    <section class="controls">
+      <div class="steps" id="steps" role="group" aria-label="Look at one part"></div>
+      <p id="stepText" aria-live="polite"></p>
+      <div class="knobs">
+        <div class="knob">
+          <label for="cut">Cut it open</label>
+          <input type="range" id="cut" min="0" max="100" value="100">
+          <div class="ends"><span>whole</span><span>cut in half</span></div>
+        </div>
+        <div class="knob">
+          <label for="fuel" id="fuelLabel"></label>
+          <input type="range" id="fuel" min="0" max="100" value="50">
+          <div class="ends"><span>a little</span><span>a lot</span></div>
+        </div>
+        <div class="knob">
+          <span class="cap" id="barLabel"></span>
+          <div class="bar"><i id="push"></i></div>
+          <div class="ends"><span id="barLo"></span><span id="barHi"></span></div>
+        </div>
+        <button type="button" id="pause" aria-pressed="false">Stop it</button>
+      </div>
+    </section>
+
+    <footer>
+      <h2>The big words, if you want them</h2>
+      <dl id="gloss"></dl>
+      <p class="fine" id="fine"></p>
+    </footer>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var stage = $('stage'), canvas = $('view'), homeEl = $('home'), machineEl = $('machine'), gridEl = $('grid');
+  var renderer = null;
+  try { if (window.THREE) renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true }); } catch (e) { renderer = null; }
+  if (!renderer) {
+    var msg = document.createElement('p');
+    msg.className = 'nogl';
+    msg.textContent = 'These models need a newer computer drawing part (WebGL) to show up. Try another browser.';
+    gridEl.appendChild(msg);
+    return;
+  }
+
+  // =====================================================================
+  // shared drawing kit: scene, pen-line picture, cut sheet, small helpers
+  // =====================================================================
+  renderer.setClearColor(0x000000, 0);
+  renderer.localClippingEnabled = true;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(30, 1.6, 10, 8000);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  var sun = new THREE.DirectionalLight(0xffffff, 0.3);
+  scene.add(sun);
+
+  var cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 200);
+  var clips = [cutPlane];
+  var S = { f: 1.05, paused: false };
+
+  var mat = {
+    caseM: new THREE.MeshLambertMaterial({ clippingPlanes: clips }),
+    metalC: new THREE.MeshLambertMaterial({ clippingPlanes: clips }),
+    cap:   new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: clips }),
+    body:  new THREE.MeshLambertMaterial(),
+    metal: new THREE.MeshLambertMaterial(),
+    ring:  new THREE.LineBasicMaterial({ clippingPlanes: clips }),
+    flame: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
+    flame2: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }),
+    air:   new THREE.LineBasicMaterial({ vertexColors: true, clippingPlanes: clips }),
+    dots:  new THREE.LineBasicMaterial({ vertexColors: true }),
+    pane:  new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.06, depthWrite: false, side: THREE.DoubleSide }),
+    paneEdge: new THREE.LineBasicMaterial({ transparent: true, opacity: 0.7 })
+  };
+  // second picture of the same model that only stores which way each face points;
+  // the pen lines are drawn wherever that changes
+  var nClip = new THREE.MeshNormalMaterial({ clippingPlanes: clips });
+  var nFree = new THREE.MeshNormalMaterial();
+  var nCap = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide, clippingPlanes: clips });
+  var rtA = new THREE.WebGLRenderTarget(4, 4), rtB = new THREE.WebGLRenderTarget(4, 4);
+  var post = new THREE.ShaderMaterial({
+    uniforms: {
+      tA: { value: rtA.texture }, tB: { value: rtB.texture },
+      res: { value: new THREE.Vector2(4, 4) }, px: { value: 1 }, seed: { value: 1 },
+      ink: { value: new THREE.Color() }, fill: { value: new THREE.Color() }
+    },
+    depthTest: false, depthWrite: false,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: [
+      'uniform sampler2D tA; uniform sampler2D tB; uniform vec2 res; uniform float px; uniform float seed;',
+      'uniform vec3 ink; uniform vec3 fill; varying vec2 vUv;',
+      'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+      'float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+      '  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }',
+      'void main(){',
+      '  vec2 c = vUv * res / px;',
+      '  vec2 q = c / 55.0 + seed * 17.3;',
+      '  vec2 d = vec2(vn(q) + 0.5 * vn(q * 2.1 + 5.0), vn(q + 31.7) + 0.5 * vn(q * 2.1 + 47.0)) / 1.5 - 0.5;',
+      '  vec2 uv = vUv + d * 7.0 * px / res;',
+      '  vec2 o = 1.1 * px / res;',
+      '  vec4 n0 = texture2D(tB, uv + vec2(-o.x, -o.y)); vec4 n1 = texture2D(tB, uv + vec2(o.x, -o.y));',
+      '  vec4 n2 = texture2D(tB, uv + vec2(-o.x, o.y));  vec4 n3 = texture2D(tB, uv + o);',
+      '  float line = smoothstep(0.25, 0.6, length(n0 - n3) + length(n1 - n2));',
+      '  vec4 nb = texture2D(tB, uv);',
+      '  vec3 rgb = texture2D(tA, uv).rgb;',
+      '  vec2 cc = uv * res / px;',
+      '  if (nb.a > 0.5 && dot(nb.rgb, nb.rgb) < 0.01) {',
+      '    rgb = mix(fill, ink, 0.75 * step(fract((cc.x + cc.y) / 7.0), 0.28));',
+      '  }',
+      '  float grid = max(step(fract(c.x / 24.0) * 24.0, 1.0), step(fract(c.y / 24.0) * 24.0, 1.0));',
+      '  rgb = mix(rgb, ink, 0.08 * grid * (1.0 - nb.a));',
+      '  rgb = mix(rgb, ink, line);',
+      '  gl_FragColor = vec4(rgb, 1.0);',
+      '}'
+    ].join('\n')
+  });
+  var postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  var quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post);
+  quad.frustumCulled = false;
+  postScene.add(quad);
+
+  var col = { paper: new THREE.Color(), ink: new THREE.Color(), fire: new THREE.Color() };
+  var themeFns = [], thumbsDirty = true;
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function applyTheme() {
+    col.paper.set(cssVar('--paper')); col.ink.set(cssVar('--ink')); col.fire.set(cssVar('--fire'));
+    mat.caseM.color.set(cssVar('--case')); mat.cap.color.set(cssVar('--fill'));
+    mat.body.color.set(cssVar('--fill')); mat.metal.color.set(cssVar('--metal')); mat.metalC.color.set(cssVar('--metal'));
+    mat.ring.color.copy(col.ink); mat.pane.color.copy(col.ink); mat.paneEdge.color.copy(col.ink);
+    mat.flame.color.copy(col.fire); mat.flame2.color.copy(col.fire);
+    post.uniforms.ink.value.copy(col.ink); post.uniforms.fill.value.set(cssVar('--fill'));
+    themeFns.forEach(function (fn) { fn(); });
+    thumbsDirty = true;
+  }
+  applyTheme();
+
+  // the see-through cutting sheet
+  var pane = new THREE.Group(), paneParts = [];
+  paneParts.push(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat.pane));
+  paneParts.push(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-0.5, -0.5, 0), new THREE.Vector3(0.5, -0.5, 0), new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(-0.5, 0.5, 0)
+  ]), mat.paneEdge));
+  paneParts.forEach(function (p) { pane.add(p); });
+  scene.add(pane);
+
+  // helpers used by every machine
+  function at(tbl, x) {
+    if (x <= tbl[0][0]) return tbl[0][1];
+    for (var i = 1; i < tbl.length; i++) {
+      if (x <= tbl[i][0]) {
+        var a = tbl[i - 1], b = tbl[i];
+        return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+      }
+    }
+    return tbl[tbl.length - 1][1];
+  }
+  function chaikin(p) {
+    var out = [];
+    for (var i = 0; i < p.length; i++) {
+      var a = p[i], b = p[(i + 1) % p.length];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    return out;
+  }
+  // turn an [along, out-from-middle] outline into points for spinning around a middle line, facing outward
+  function prof(pts, cx, closed) {
+    var v = pts.map(function (p) { return new THREE.Vector2(Math.max(p[1], 0.001), p[0] - cx); });
+    var a = 0;
+    for (var i = 0; i < v.length; i++) { var p = v[i], q = v[(i + 1) % v.length]; a += p.x * q.y - q.x * p.y; }
+    if (a < 0) v.reverse();
+    if (closed) v.push(v[0].clone());
+    return v;
+  }
+  // a part that the cut goes through: outside skin plus the hatched cut face
+  function addCut(parent, geo, colorMat) {
+    var g = new THREE.Group();
+    var a = new THREE.Mesh(geo, colorMat || mat.caseM); a.userData.n = nClip;
+    var b = new THREE.Mesh(geo, mat.cap); b.userData.n = nCap;
+    g.add(a); g.add(b); parent.add(g);
+    return g;
+  }
+  // a part that is left whole
+  function addWhole(parent, geo, m) {
+    var a = new THREE.Mesh(geo, m || mat.metal);
+    a.userData.n = nFree;
+    parent.add(a);
+    return a;
+  }
+  // a bunch of short lines whose ends and colours change every frame
+  function lineSet(parent, n, material) {
+    var pos = new Float32Array(n * 6), colr = new Float32Array(n * 6), geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colr, 3));
+    [0, 1.3].forEach(function (dy) { // drawn twice, a hair apart, so they look thicker
+      var l = new THREE.LineSegments(geo, material);
+      l.frustumCulled = false; l.position.y = dy; parent.add(l);
+    });
+    return {
+      pos: pos, col: colr,
+      // hot: 0 = ink, 1 = fire.  show: 0 = gone, 1 = full.  white: use paper colour
+      paint: function (i, hot, show, white) {
+        var k = i * 6, R, G, B;
+        if (white) { R = col.paper.r; G = col.paper.g; B = col.paper.b; }
+        else {
+          R = col.ink.r + (col.fire.r - col.ink.r) * hot; G = col.ink.g + (col.fire.g - col.ink.g) * hot; B = col.ink.b + (col.fire.b - col.ink.b) * hot;
+          R = col.paper.r + (R - col.paper.r) * show; G = col.paper.g + (G - col.paper.g) * show; B = col.paper.b + (B - col.paper.b) * show;
+        }
+        colr[k] = colr[k + 3] = R; colr[k + 1] = colr[k + 4] = G; colr[k + 2] = colr[k + 5] = B;
+      },
+      put: function (i, x0, y0, z0, x1, y1, z1) {
+        var k = i * 6;
+        pos[k] = x0; pos[k + 1] = y0; pos[k + 2] = z0; pos[k + 3] = x1; pos[k + 4] = y1; pos[k + 5] = z1;
+      },
+      flush: function () { geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true; }
+    };
+  }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+  // =====================================================================
+  // machine 1: fire wind pusher (jet engine)
+  // =====================================================================
+  function buildJet() {
+    var CX = 520, root = new THREE.Group(), eng = new THREE.Group();
+    eng.rotation.z = -Math.PI / 2; // spun shapes use their own "up" as the machine's long way
+    root.add(eng);
+    var T = {
+      coreOutWall: [[300,74],[320,70],[520,44],[535,58],[645,58],[660,50],[760,70],[865,46]],
+      hub:         [[278,36],[312,12],[660,12],[760,30],[905,0]],
+      bypIn:  [[-60,98],[230,78],[300,84],[340,97],[450,102],[600,100],[720,94],[800,80],[865,57],[1250,70]],
+      bypOut: [[-60,185],[230,146],[300,144],[500,136],[640,124],[705,114],[1250,128]],
+      corIn:  [[-60,0],[178,0],[238,36],[278,36],[312,15],[660,15],[760,33],[905,2],[1250,2]],
+      corOut: [[-60,94],[230,74],[300,71],[320,67],[520,41],[535,55],[645,55],[660,47],[760,67],[865,43],[1250,62]],
+      corV:   [[-60,90],[300,110],[520,60],[540,70],[650,160],[760,200],[865,420],[1250,420]],
+      bypV:   [[-60,90],[238,100],[300,170],[705,230],[1250,230]]
+    };
+    var nacelle = [[150,152],[160,170],[200,182],[300,190],[450,188],[600,165],[700,126],[708,120],
+                   [640,128],[500,140],[300,148],[230,150],[160,150]];
+    var cowl = [[300,77],[315,88],[340,93],[450,98],[600,96],[720,90],[800,76],[865,50],
+                [865,46],[760,70],[660,50],[645,58],[535,58],[520,44],[320,70],[300,74]];
+    [chaikin(chaikin(nacelle)), chaikin(cowl)].forEach(function (pts) {
+      addCut(eng, new THREE.LatheGeometry(prof(pts, CX, true), 72));
+    });
+    [[152,152],[300,190.5],[600,165.5],[707,121],[301,76],[864,49]].forEach(function (p) {
+      var pts = [];
+      for (var i = 0; i < 72; i++) { var a = i / 72 * Math.PI * 2; pts.push(new THREE.Vector3(p[1] * Math.cos(a), p[0] - CX, p[1] * Math.sin(a))); }
+      eng.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat.ring));
+    });
+    addWhole(eng, new THREE.LatheGeometry(prof([[278,0]].concat(T.hub), CX, false), 40), mat.body);
+    addWhole(eng, new THREE.LatheGeometry(prof([[178,0],[184,12],[198,24],[218,32],[238,36],[238,0]], CX, false), 40), mat.body);
+
+    var rotors = [{ x: 238, w: 40, tip: 146, hub: 34, n: 18, pitch: 0.6, th: 3 }];
+    [322, 356, 390, 424, 458, 492].forEach(function (x) {
+      rotors.push({ x: x, w: 14, tip: at(T.coreOutWall, x + 7) - 3, hub: 11, n: 16, pitch: 0.5, th: 2 });
+    });
+    [668, 700, 732].forEach(function (x) {
+      rotors.push({ x: x, w: 16, tip: at(T.coreOutWall, x + 8) - 3, hub: at(T.hub, x + 8) - 1, n: 18, pitch: -0.6, th: 2.5 });
+    });
+    rotors.forEach(function (r) {
+      var g = new THREE.Group();
+      g.position.y = r.x + r.w / 2 - CX;
+      var geo = new THREE.BoxGeometry(r.tip - r.hub, r.w * 0.9, r.th);
+      for (var i = 0; i < r.n; i++) {
+        var pivot = new THREE.Group();
+        pivot.rotation.y = i * Math.PI * 2 / r.n;
+        var m = addWhole(pivot, geo, mat.metal);
+        m.position.x = (r.tip + r.hub) / 2;
+        m.rotation.x = r.pitch;
+        g.add(pivot);
+      }
+      r.group = g;
+      eng.add(g);
+    });
+
+    function flameGeo(h) {
+      var top = [], bot = [];
+      for (var i = 0; i <= 8; i++) {
+        var t = i / 8, w = h * Math.pow(1 - t, 0.6);
+        top.push([90 * t, 36 + w]);
+        if (i < 8 && i > 0) bot.unshift([90 * t, 36 - w]);
+      }
+      bot.push([0, 36 - h]);
+      return new THREE.LatheGeometry(prof(top.concat(bot), 0, true), 40);
+    }
+    var flameA = new THREE.Mesh(flameGeo(15), mat.flame), flameB = new THREE.Mesh(flameGeo(8), mat.flame2);
+    flameA.position.y = flameB.position.y = 550 - CX;
+    eng.add(flameA); eng.add(flameB);
+
+    var pipe = addWhole(eng, new THREE.CylinderGeometry(2.6, 2.6, 56, 10), mat.metal);
+    pipe.rotation.z = Math.PI / 2;
+    pipe.position.set(-70, 556 - CX, 0);
+
+    var N = 460, NCORE = 140, parts = [], L = lineSet(root, N, mat.air);
+    function spawn(p, anywhere) {
+      p.x = anywhere ? -60 + Math.random() * 1310 : -60 - Math.random() * 40;
+      p.u = 0.05 + Math.random() * 0.9;
+      p.a = Math.random() * Math.PI * 2;
+      p.j = 0.85 + Math.random() * 0.3;
+      p.v = 100;
+    }
+    for (var i = 0; i < N; i++) { var p = { core: i < NCORE }; spawn(p, true); parts.push(p); }
+    function stepAir(dt) {
+      for (var i = 0; i < N; i++) {
+        var p = parts[i];
+        p.v = at(p.core ? T.corV : T.bypV, p.x) * S.f * p.j;
+        p.x += p.v * dt;
+        if (p.x > 1250) spawn(p, false);
+      }
+    }
+    function laneR(p, x) {
+      var a = at(p.core ? T.corIn : T.bypIn, x), b = at(p.core ? T.corOut : T.bypOut, x);
+      return a + (b - a) * p.u;
+    }
+    function flicker() {
+      var len = (48 + 28 * S.f) / 90;
+      flameA.scale.y = len * (0.9 + Math.random() * 0.2);
+      flameB.scale.y = len * 0.6 * (0.85 + Math.random() * 0.3);
+    }
+    for (var k = 0; k < 300; k++) stepAir(0.033);
+    flicker();
+    var flameT = 0;
+
+    return {
+      root: root,
+      update: function (dt) {
+        rotors.forEach(function (r) { r.group.rotation.y += 2.5 * S.f * dt; });
+        stepAir(dt);
+        flameT += dt;
+        if (flameT > 0.09) { flameT = 0; flicker(); }
+      },
+      draw: function () {
+        for (var i = 0; i < N; i++) {
+          var p = parts[i], len = Math.max(4, p.v * 0.05);
+          var c = Math.cos(p.a), s = Math.sin(p.a), r0 = laneR(p, p.x - len), r1 = laneR(p, p.x);
+          L.put(i, p.x - len - CX, r0 * c, r0 * s, p.x - CX, r1 * c, r1 * s);
+          L.paint(i, p.core ? clamp((p.x - 545) / 90, 0, 1) : 0, clamp(Math.min((p.x + 60) / 120, (1250 - p.x) / 220), 0, 1) * 0.85);
+        }
+        L.flush();
+      },
+      fuelChanged: flicker
+    };
+  }
+
+  // =====================================================================
+  // machine 2: hot water pusher (steam engine)
+  // =====================================================================
+  function buildSteam() {
+    var root = new THREE.Group();
+    var WX = 420, R = 62, ROD = 230, PR = 190, VA = 16, th = 0.9;
+
+    function shape(pts, Ctor) {
+      var s = new (Ctor || THREE.Shape)();
+      pts.forEach(function (p, i) { if (i) s.lineTo(p[0], p[1]); else s.moveTo(p[0], p[1]); });
+      s.lineTo(pts[0][0], pts[0][1]);
+      return s;
+    }
+    function ext(sh, depth, z0) {
+      var g = new THREE.ExtrudeGeometry(sh, { depth: depth, bevelEnabled: false });
+      g.translate(0, 0, z0);
+      return g;
+    }
+    function rodX(r, len) { var g = new THREE.CylinderGeometry(r, r, len, 16); g.rotateZ(Math.PI / 2); return g; }
+    function discZ(r, t) { var g = new THREE.CylinderGeometry(r, r, t, 40); g.rotateX(Math.PI / 2); return g; }
+    function box(parent, x0, x1, y0, y1, z0, z1, m) {
+      var b = addWhole(parent, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      b.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      return b;
+    }
+
+    // ground and stands
+    box(root, -500, 610, -196, -180, -120, 90, mat.body);
+    box(root, -95, 95, -180, -65, -50, 50, mat.body);
+    box(root, 395, 445, -180, 14, -54, -42, mat.body);
+
+    // push room with the door room on top, drawn as its cut shape and pushed back into the page
+    var outline = [[-105,-65],[105,-65],[105,88],[85,88],[85,150],[-85,150],[-85,88],[-105,88]];
+    var hollow = [[-90,-50],[90,-50],[90,72],[38,72],[38,85],[70,85],[70,135],[-70,135],[-70,85],[-38,85],[-38,72],[-90,72]];
+    var island = [[-78,50],[78,50],[78,60],[26,60],[26,85],[10,85],[10,62],[-10,62],[-10,85],[-26,85],[-26,60],[-78,60]];
+    var blockShape = shape(outline);
+    blockShape.holes.push(shape(hollow, THREE.Path));
+    addCut(root, ext(blockShape, 110, -55));
+    addCut(root, ext(shape(island), 110, -55));
+    addCut(root, ext(shape(outline), 8, 55));
+    addCut(root, ext(shape(outline), 8, -63));
+
+    // sliding door (cut, so you can see the space under it) with its stick
+    var valve = new THREE.Group();
+    valve.position.y = 85;
+    root.add(valve);
+    addCut(valve, ext(shape([[-40,0],[-24,0],[-24,13],[24,13],[24,0],[40,0],[40,24],[-40,24]]), 90, -45), mat.metalC);
+    var vrod = addWhole(valve, rodX(4, 130), mat.metal);
+    vrod.position.set(105, 12, 0);
+    var vpin = addWhole(valve, discZ(5, 34), mat.metal);
+    vpin.position.set(170, 12, -15);
+
+    // pushing block, its stick, the sliding end, and the arm
+    var piston = addWhole(root, new THREE.BoxGeometry(30, 98, 108), mat.metal);
+    var prod = addWhole(root, rodX(5.5, PR), mat.metal);
+    var cross = addWhole(root, new THREE.BoxGeometry(34, 44, 26), mat.metal);
+    box(root, 112, 272, 24, 30, -15, 15, mat.body);
+    box(root, 112, 272, -30, -24, -15, 15, mat.body);
+    var conrod = addWhole(root, new THREE.BoxGeometry(ROD, 14, 8), mat.metal);
+    conrod.position.z = 4;
+    var eccRod = addWhole(root, new THREE.BoxGeometry(250, 9, 6), mat.metal);
+    eccRod.position.z = -30;
+
+    // everything that goes around with the wheel
+    var wheel = new THREE.Group();
+    wheel.position.set(WX, 0, 0);
+    root.add(wheel);
+    var rim = new THREE.LatheGeometry([[140,-13],[165,-13],[165,13],[140,13],[140,-13]].map(function (p) { return new THREE.Vector2(p[0], p[1]); }), 64);
+    rim.rotateX(Math.PI / 2);
+    addWhole(wheel, rim, mat.metal).position.z = -75;
+    for (var s = 0; s < 6; s++) {
+      var spoke = addWhole(wheel, new THREE.BoxGeometry(130, 14, 10), mat.metal);
+      var a = s * Math.PI / 3;
+      spoke.position.set(75 * Math.cos(a), 75 * Math.sin(a), -75);
+      spoke.rotation.z = a;
+    }
+    addWhole(wheel, discZ(24, 30), mat.metal).position.z = -75;
+    addWhole(wheel, discZ(11, 104), mat.body).position.z = -60;       // the wheel's own stick
+    addWhole(wheel, discZ(78, 12), mat.body).position.z = -14;        // plate that holds the arm
+    addWhole(wheel, discZ(7, 22), mat.metal).position.set(R, 0, 2);   // where the arm joins on
+    addWhole(wheel, discZ(30, 10), mat.metal).position.set(0, VA, -30); // off-middle plate that moves the door arm
+
+    // water room: a strong round box lying on its side
+    var drum = new THREE.Group();
+    drum.position.set(-330, 60, 0);
+    drum.rotation.z = -Math.PI / 2;
+    root.add(drum);
+    addCut(drum, new THREE.LatheGeometry(prof(chaikin([[-120,0],[-120,95],[120,95],[120,0],[112,0],[112,87],[-112,87],[-112,0]]), 0, true), 64));
+    var waterPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 75);
+    var wClips = [cutPlane, waterPlane];
+    var waterM = new THREE.MeshLambertMaterial({ clippingPlanes: wClips });
+    var waterCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: wClips });
+    var nWater = new THREE.MeshNormalMaterial({ clippingPlanes: wClips });
+    var nWaterCap = new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.BackSide, clippingPlanes: wClips });
+    function waterTheme() { waterM.color.set(cssVar('--water')); waterCap.color.set(cssVar('--water')); }
+    themeFns.push(waterTheme); waterTheme();
+    var wGeo = new THREE.LatheGeometry(prof([[-111,0],[-111,86],[111,86],[111,0]], 0, true), 64);
+    var w1 = new THREE.Mesh(wGeo, waterM); w1.userData.n = nWater; drum.add(w1);
+    var w2 = new THREE.Mesh(wGeo, waterCap); w2.userData.n = nWaterCap; drum.add(w2);
+
+    // fire box under it, with flames
+    var fb = [[-445,-180],[-215,-180],[-215,-30],[-445,-30]];
+    var fbShape = shape(fb);
+    fbShape.holes.push(shape([[-430,-168],[-230,-168],[-230,-42],[-430,-42]], THREE.Path));
+    addCut(root, ext(fbShape, 140, -70));
+    addCut(root, ext(shape(fb), 8, 70));
+    addCut(root, ext(shape(fb), 8, -78));
+    var cone = new THREE.ConeGeometry(15, 1, 10); cone.translate(0, 0.5, 0);
+    var fires = [];
+    for (var c = 0; c < 5; c++) {
+      var f1 = new THREE.Mesh(cone, mat.flame), f2 = new THREE.Mesh(cone, mat.flame2);
+      f1.position.set(-410 + c * 40, -167, -25); f2.position.set(-410 + c * 40, -167, -25);
+      f2.scale.x = f2.scale.z = 0.55;
+      root.add(f1); root.add(f2);
+      fires.push([f1, f2]);
+    }
+    function flicker() {
+      fires.forEach(function (p) {
+        var h = (40 + 38 * S.f) * rnd(0.75, 1.15);
+        p[0].scale.y = h; p[1].scale.y = h * rnd(0.45, 0.65);
+      });
+    }
+    flicker();
+
+    // smoke pipe
+    var chim = new THREE.LatheGeometry([[13,-180],[19,-180],[19,270],[13,270],[13,-180]].map(function (p) { return new THREE.Vector2(p[0], p[1]); }), 28);
+    addCut(root, chim).position.x = -466;
+
+    // water air pipe from the top of the water room to the door room, and the out pipe behind
+    var curve = new THREE.CatmullRomCurve3([[-330,148],[-330,190],[-315,205],[-15,205],[0,190],[0,146]].map(function (p) { return new THREE.Vector3(p[0], p[1], 0); }), false, 'catmullrom', 0.15);
+    addCut(root, new THREE.TubeGeometry(curve, 80, 11, 14, false));
+    var boreM = new THREE.MeshLambertMaterial({ side: THREE.BackSide, clippingPlanes: clips });
+    var nBore = new THREE.MeshNormalMaterial({ side: THREE.BackSide, clippingPlanes: clips });
+    function boreTheme() { boreM.color.set(cssVar('--fill')); }
+    themeFns.push(boreTheme); boreTheme();
+    var bore = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 7, 12, false), boreM);
+    bore.userData.n = nBore; root.add(bore);
+    var cs = curve.getSpacedPoints(100);
+    addWhole(root, new THREE.CylinderGeometry(10, 10, 200, 16), mat.metal).position.set(0, 160, -85);
+
+    // ---- little moving lines: bubbles, water air, puffs, smoke ----
+    var dots = [];
+    function make(kind, n, init) { for (var i = 0; i < n; i++) { var d = { k: kind, jx: 0, jy: 0 }; init(d); dots.push(d); } }
+    function newBub(d, any) { d.x = rnd(-425, -235); d.z = rnd(-40, -3); d.y = any ? rnd(-18, 70) : -18; d.v = rnd(25, 45); }
+    function newBs(d) { d.x = rnd(-425, -235); d.y = rnd(82, 138); d.z = rnd(-28, -3); }
+    function newSmoke(d, any) { d.x = -466 + rnd(-8, 8); d.y = 272 + (any ? rnd(0, 80) : 0); d.z = rnd(-6, 6); d.max = rnd(1.5, 3); d.life = any ? rnd(0, d.max) : d.max; d.vx = rnd(-10, 4); }
+    make('bub', 34, function (d) { newBub(d, true); });
+    make('bs', 30, newBs);
+    make('pipe', 24, function (d) { d.s = Math.random(); d.j = rnd(0.8, 1.2); d.z = rnd(-5, -1); });
+    make('chest', 22, function (d) { d.x = rnd(-66, 66); d.y = rnd(113, 132); d.z = rnd(-40, -3); });
+    make('cl', 38, function (d) { d.u = Math.random(); d.v = Math.random(); d.w = Math.random(); });
+    make('cr', 38, function (d) { d.u = Math.random(); d.v = Math.random(); d.w = Math.random(); });
+    make('puff', 40, function (d) { d.life = 0; d.max = 1; d.x = 0; d.y = 0; d.z = 0; d.vx = 0; d.vy = 0; });
+    make('smoke', 22, function (d) { newSmoke(d, true); });
+    var L = lineSet(root, dots.length, mat.dots);
+
+    var tagP = {}, xp = 0, xc = 0, xv = 0, pinX = 0, pinY = 0, lastSign = 1, jitT = 0, flameT = 0;
+    function pose() {
+      pinX = R * Math.cos(th); pinY = R * Math.sin(th);
+      xc = WX + pinX - Math.sqrt(ROD * ROD - pinY * pinY);
+      xp = xc - PR;
+      xv = -VA * Math.sin(th);
+      piston.position.x = xp;
+      prod.position.x = xp + PR / 2;
+      cross.position.x = xc;
+      conrod.position.x = (xc + WX + pinX) / 2; conrod.position.y = pinY / 2;
+      conrod.rotation.z = Math.atan2(pinY, WX + pinX - xc);
+      valve.position.x = xv;
+      var ax = xv + 170, ay = 97, ex = WX - VA * Math.sin(th), ey = VA * Math.cos(th);
+      eccRod.position.x = (ax + ex) / 2; eccRod.position.y = (ay + ey) / 2;
+      eccRod.rotation.z = Math.atan2(ey - ay, ex - ax);
+      eccRod.scale.x = Math.sqrt((ex - ax) * (ex - ax) + (ey - ay) * (ey - ay)) / 250;
+      wheel.rotation.z = th;
+      if (tagP['Pushing block']) tagP['Pushing block'].set(xp, 0, 0);
+      if (tagP['Arm']) tagP['Arm'].set(conrod.position.x, conrod.position.y, 4);
+      if (tagP['Door arm']) tagP['Door arm'].set(eccRod.position.x, eccRod.position.y, -30);
+      if (tagP['Sliding door']) tagP['Sliding door'].set(xv, 100, 0);
+    }
+    pose();
+
+    return {
+      root: root, tagP: tagP,
+      update: function (dt) {
+        var f = S.f;
+        th += 1.6 * f * dt;
+        pose();
+        var sign = xv >= 0 ? 1 : -1, puffNow = sign !== lastSign ? 10 : 0;
+        lastSign = sign;
+        jitT += dt; flameT += dt;
+        var jit = jitT > 0.1;
+        if (jit) jitT = 0;
+        if (flameT > 0.09) { flameT = 0; flicker(); }
+        for (var i = 0; i < dots.length; i++) {
+          var d = dots[i];
+          if (d.k === 'bub') { d.y += d.v * f * dt; if (d.y > 72) newBub(d, false); }
+          else if (d.k === 'bs') { d.x += (-330 - d.x) * 0.35 * f * dt; d.y += 7 * f * dt; if (d.y > 142) newBs(d); }
+          else if (d.k === 'pipe') { d.s += 0.3 * f * d.j * dt; if (d.s > 1) d.s -= 1; }
+          else if (d.k === 'puff') {
+            if (d.life > 0) { d.life -= dt; d.x += d.vx * dt; d.y += d.vy * dt; d.vy *= 0.985; }
+            else if (puffNow > 0) { puffNow--; d.max = d.life = rnd(1.0, 1.7); d.x = rnd(-6, 6); d.y = 262; d.z = -85 + rnd(-6, 6); d.vx = rnd(-22, 22); d.vy = rnd(45, 95); }
+          }
+          else if (d.k === 'smoke') { d.life -= dt; d.y += 38 * dt; d.x += d.vx * dt; if (d.life <= 0) newSmoke(d, false); }
+          if (jit) { d.jx = rnd(-1.6, 1.6); d.jy = rnd(-1.6, 1.6); }
+        }
+      },
+      draw: function () {
+        var live = clamp(xv / 5, -1, 1) * 0.5 + 0.5; // 1 = water air is pushing on the left side
+        for (var i = 0; i < dots.length; i++) {
+          var d = dots[i], x, y, z, a;
+          if (d.k === 'bub') { L.put(i, d.x, d.y - 4, d.z, d.x, d.y, d.z); L.paint(i, 0, 1, true); }
+          else if (d.k === 'bs') { L.put(i, d.x + d.jx, d.y - 4, d.z, d.x + d.jx, d.y, d.z); L.paint(i, 0.75, 0.9); }
+          else if (d.k === 'pipe') {
+            var p1 = cs[Math.round(d.s * 100)], p0 = cs[Math.max(0, Math.round(d.s * 100) - 2)];
+            L.put(i, p0.x, p0.y, d.z, p1.x, p1.y, d.z); L.paint(i, 1, 0.95);
+          }
+          else if (d.k === 'chest') { L.put(i, d.x + d.jx, d.y + d.jy - 2, d.z, d.x + d.jx, d.y + d.jy + 2, d.z); L.paint(i, 1, 0.95); }
+          else if (d.k === 'cl' || d.k === 'cr') {
+            var x0 = d.k === 'cl' ? -88 : xp + 17, x1 = d.k === 'cl' ? xp - 17 : 88;
+            a = d.k === 'cl' ? live : 1 - live;
+            x = x0 + d.u * (x1 - x0) + d.jx; y = -45 + d.v * 90 + d.jy; z = -50 + d.w * 46;
+            L.put(i, x, y - 2, z, x, y + 2, z); L.paint(i, a, 0.3 + 0.65 * a);
+          }
+          else if (d.k === 'puff') { a = d.life > 0 ? d.life / d.max : 0; L.put(i, d.x, d.y - 5, d.z, d.x, d.y, d.z); L.paint(i, 0, a * 0.8); }
+          else { a = clamp(d.life / d.max, 0, 1); L.put(i, d.x, d.y - 5, d.z, d.x, d.y, d.z); L.paint(i, 0, a * 0.55); }
+        }
+        L.flush();
+      },
+      fuelChanged: flicker
+    };
+  }
+
+  // =====================================================================
+  // what each machine says about itself
+  // =====================================================================
+  var DEFS = {
+    jet: {
+      title: 'Fire Wind Pusher', tsub: 'what people call a jet engine',
+      sub: 'The machine under the wing that pushes a flying machine through the sky.',
+      corner: '&larr; The whole machine gets pushed this way',
+      build: buildJet, cam: { cx: 30, cy: 0, hw: 580, hh: 345, az: -0.5, el: 0.3 }, cutMax: 192, pane: [900, 440],
+      fuelLabel: 'How much fire water goes in', barLabel: 'How hard it pushes', barLo: 'soft', barHi: 'hard',
+      bar: function (f) { return Math.pow(f / 1.7, 2); },
+      steps: [
+        ['The whole thing', 'Air goes in the front. Some of it gets pressed and burned. All of it comes out the back faster than it went in. Throwing air back is what pushes the machine forward. Press a name on the drawing to hear about that part.'],
+        ['1. Pull air in', 'The big turner at the front pulls in air. A big one can pull in enough to fill a house every second. Only a little of that air goes into the hot middle. Most of it goes around and gets thrown straight out the back.'],
+        ['2. Press it small', 'The air in the middle goes through row after row of small turning wings. Each row pushes it into a smaller space. By the end it is pressed many times tighter, and it is already hot before any fire touches it.'],
+        ['3. Burn it', 'Fire water is shot into the pressed air and burns. The fire is lit once and then keeps going as long as fire water keeps coming. Burning makes the air much hotter. Hot air needs a lot more room, so it rushes for the only way out, which is the back.'],
+        ['4. Shoot it out', 'On its way out, the hot air turns a set of wheels. The wheels turn the stick, and the stick turns everything at the front. So the air that is leaving is what pulls new air in. What is left of the hot air shoots out of the back hole.']
+      ],
+      tags: [
+        ['Big air turner', [-262, 118], [-330, 240], 1, 'Big air turner: the part you see from the front. It pulls in air and throws most of it straight out the back.'],
+        ['Air that goes around', [-60, 120], [-120, 292], 1, 'Air that goes around: most of the air never touches the fire. It goes around the hot middle. This cold air does most of the pushing.'],
+        ['Fire water pipe', [36, 84], [90, 240], 3, 'Fire water pipe: it shoots fire water into the pressed air as tiny drops.'],
+        ['Back hole', [346, 46], [360, 240], 4, 'Back hole: it gets smaller, so the hot air has to go faster on its way out.'],
+        ['Air pressers', [-110, -48], [-200, -240], 2, 'Air pressers: rows of small turning wings. Each row pushes the air into a smaller space. Pressed air burns much better.'],
+        ['Fire room', [70, -46], [-10, -292], 3, 'Fire room: the fire here never stops while the machine is on. It makes the air very hot, and hot air wants a lot more room.'],
+        ['Turning stick', [134, -12], [160, -240], 4, 'Turning stick: it joins the wheels at the back to everything at the front, so they all turn together.'],
+        ['Hot air wheels', [196, -54], [330, -292], 4, 'Hot air wheels: hot air rushing out turns these. They turn the stick.']
+      ],
+      loose: [['Air goes in &rarr;', -390, 10], ['Air comes out,<br>much faster &rarr;', 470, -185],
+              ['Don\'t stand here<br>(it pulls)', -400, -75, 1], ['Or here<br>(it burns)', 490, 15, 1]],
+      gloss: [['Fire wind pusher', 'jet engine (turbofan)'], ['Big air turner', 'fan'], ['Air that goes around', 'bypass air'],
+              ['Air pressers', 'compressor'], ['Fire water', 'jet fuel'], ['Fire room', 'combustion chamber'],
+              ['Hot air wheels', 'turbine'], ['Turning stick', 'shaft'], ['Back hole', 'nozzle']],
+      fine: 'The outside is cut open, but the turning parts are left whole so you can watch them go around. This model has one turning stick to keep it simple. Real ones have two or three, one inside another, so the front and the back can each turn at the speed they like best.'
+    },
+    steam: {
+      title: 'Hot Water Pusher', tsub: 'what people call a steam engine',
+      sub: 'The machine that turns fire and water into a wheel going around. It ran the first trains.',
+      corner: 'The turning wheel can run other machines',
+      build: buildSteam, cam: { cx: 55, cy: 45, hw: 630, hh: 365, az: -0.32, el: 0.22 }, cutMax: 105, pane: [1150, 500],
+      fuelLabel: 'How big the fire is', barLabel: 'How fast the wheel turns', barLo: 'slow', barHi: 'fast',
+      bar: function (f) { return f / 1.7; },
+      steps: [
+        ['The whole thing', 'A fire heats water until it turns into water air. Water air takes up far more room than water did, so it pushes hard on everything around it. This machine lets it push a block back and forth, and an arm turns that into a wheel going around. Press a name on the drawing to hear about that part.'],
+        ['1. Make water air', 'The fire sits right under a strong round box that is half full of water. The water gets so hot that it turns into water air and fills the top of the box. It has nowhere to go, so it pushes harder and harder.'],
+        ['2. Let it in', 'A pipe carries the water air to a small room with a sliding door. The door lets it into one end of the push room, then the other end, over and over.'],
+        ['3. Push the block', 'Water air rushes in on one side of the block and pushes it to the far end. Then the door slides over. New water air comes in on the other side and pushes the block back, and the used water air leaves through the out pipe in a puff.'],
+        ['4. Turn the wheel', 'The block is joined to the edge of a heavy wheel by an arm, so going back and forth becomes going around. The wheel also moves the sliding door. That means the machine itself picks which side gets pushed next, and it keeps going as long as the fire does.']
+      ],
+      tags: [
+        ['Water room', [-330, 105], [-340, 300], 1, 'Water room: a strong round box half full of water. The fire makes the water so hot it turns into water air, which fills the top. If nothing ever let the water air out, this box would blow up, so there is always a small door on top that opens by itself when the push gets too big.'],
+        ['Water air pipe', [-170, 205], [-190, 255], 2, 'Water air pipe: it carries water air from the top of the water room to the door room.'],
+        ['Sliding door', [0, 100], [-70, 300], 2, 'Sliding door: it slides back and forth and lets water air into one end of the push room, then the other. At the same time, the space under it lets the used water air out of the far end.'],
+        ['Out pipe', [0, 240, -85], [110, 300], 3, 'Out pipe: used water air leaves here in a puff each time the block changes direction. That is the sound these machines make.'],
+        ['Door arm', [290, 60, -30], [290, 250], 4, 'Door arm: the wheel moves the sliding door with this, a little ahead of the block. So the machine itself picks which side gets pushed next.'],
+        ['Heavy wheel', [528, 108, -75], [540, 300], 4, 'Heavy wheel: once it is turning it does not like to stop. That carries the block past the two ends, where the water air cannot push it around.'],
+        ['Fire box', [-330, -120], [-330, -250], 1, 'Fire box: the fire burns here, right under the water. A bigger fire makes more water air, and the wheel turns faster.'],
+        ['Push room', [60, -42], [-50, -250], 3, 'Push room: water air comes in on one side of the block and pushes it to the other end. Then the door changes sides and the block gets pushed back.'],
+        ['Pushing block', [0, 0], [140, -250], 3, 'Pushing block: it fits the push room tightly, so the water air cannot get past it and has to move it.'],
+        ['Arm', [300, 0], [330, -250], 4, 'Arm: it joins the block to a point near the edge of the wheel. When the block goes back and forth, the arm makes the wheel go around.']
+      ],
+      loose: [['Smoke', -466, 345], ['Don\'t touch<br>(very hot)', -330, 28, 1]],
+      gloss: [['Hot water pusher', 'steam engine'], ['Water air', 'steam'], ['Water room', 'boiler'], ['Fire box', 'firebox'],
+              ['Sliding door', 'slide valve'], ['Push room', 'cylinder'], ['Pushing block', 'piston'], ['Arm', 'connecting rod'],
+              ['Door arm', 'eccentric rod'], ['Heavy wheel', 'flywheel'], ['Out pipe', 'exhaust'], ['Small door on top', 'safety valve']],
+      fine: 'The outside is cut open, but the moving parts are left whole. The push room is drawn as a box so you can see into it. Real ones are round, and the small door on top of the water room is left out of the drawing.'
+    }
+  };
+  var ORDER = ['jet', 'steam'];
+  function inst(id) {
+    var d = DEFS[id];
+    if (!d.m) {
+      d.m = d.build();
+      d.solids = []; d.extras = [];
+      d.m.root.traverse(function (o) {
+        if (o.isMesh && o.userData.n) { o.userData.c = o.material; d.solids.push(o); }
+        else if (o.isMesh || o.isLine) d.extras.push(o);
+      });
+    }
+    return d;
+  }
+
+  // =====================================================================
+  // camera, drawing a frame, tiles
+  // =====================================================================
+  var cur = null, az = -0.5, el = 0.3, W = 1, H = 1, tmp = new THREE.Vector3();
+  function setView(w, h, dpr) {
+    W = w; H = h;
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    var bw = Math.floor(w * dpr), bh = Math.floor(h * dpr);
+    rtA.setSize(bw, bh); rtB.setSize(bw, bh);
+    post.uniforms.res.value.set(bw, bh);
+    post.uniforms.px.value = dpr;
+  }
+  function placeCamera() {
+    var c = cur.cam, t = Math.tan(15 * Math.PI / 180), dist = Math.max(c.hw / (t * camera.aspect), c.hh / t);
+    camera.position.set(c.cx + dist * Math.sin(az) * Math.cos(el), c.cy + dist * Math.sin(el), dist * Math.cos(az) * Math.cos(el));
+    camera.lookAt(c.cx, c.cy, 0);
+    camera.updateMatrixWorld();
+    sun.position.copy(camera.position).add(tmp.set(-300, 500, 0));
+  }
+  function setCut(v) {
+    var d = cur.cutMax * (1 - v / 100);
+    cutPlane.constant = d + (v <= 0 ? 60 : 0);
+    pane.position.set(cur.cam.cx, cur.cam.cy, d);
+    pane.scale.set(cur.pane[0], cur.pane[1], 1);
+    pane.visible = v > 0;
+  }
+  function swap(toLines) {
+    var i;
+    for (i = 0; i < cur.solids.length; i++) cur.solids[i].material = toLines ? cur.solids[i].userData.n : cur.solids[i].userData.c;
+    for (i = 0; i < cur.extras.length; i++) cur.extras[i].visible = !toLines;
+    for (i = 0; i < paneParts.length; i++) paneParts[i].visible = !toLines;
+  }
+  function drawFrame() {
+    renderer.setRenderTarget(rtA);
+    renderer.setClearColor(col.paper, 1);
+    renderer.render(scene, camera);
+    swap(true);
+    renderer.setRenderTarget(rtB);
+    renderer.setClearColor(0x000000, 0);
+    renderer.render(scene, camera);
+    swap(false);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCam);
+  }
+
+  var tiles = {};
+  ORDER.forEach(function (id) {
+    var d = DEFS[id], a = document.createElement('a');
+    a.className = 'tile'; a.href = '#' + id; a.id = 'tile-' + id;
+    var cv = document.createElement('canvas'); cv.width = 640; cv.height = 400;
+    var n = document.createElement('span'); n.className = 'tname'; n.textContent = d.title;
+    var s = document.createElement('span'); s.className = 'tsub'; s.textContent = d.tsub;
+    a.appendChild(cv); a.appendChild(n); a.appendChild(s);
+    gridEl.appendChild(a);
+    tiles[id] = cv;
+  });
+  function drawTiles() {
+    ORDER.forEach(function (id) {
+      cur = inst(id);
+      scene.add(cur.m.root);
+      az = cur.cam.az; el = cur.cam.el;
+      setCut(0); // tiles show the machine whole, from the outside
+      cur.m.draw();
+      setView(640, 400, 1);
+      placeCamera();
+      drawFrame();
+      tiles[id].getContext('2d').drawImage(canvas, 0, 0, 640, 400);
+      scene.remove(cur.m.root);
+    });
+    cur = null;
+    thumbsDirty = false;
+  }
+
+  // =====================================================================
+  // one machine on the big page
+  // =====================================================================
+  var leads = $('leadG'), SVGNS = 'http://www.w3.org/2000/svg', boilF = $('boil'), turb = $('turb');
+  var stepText = $('stepText'), stepsEl = $('steps'), cut = $('cut'), fuel = $('fuel'), push = $('push'), pauseBtn = $('pause');
+  var tags = [], stepBtns = [], intro = false, t0 = 0;
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function toScreen(v) {
+    tmp.copy(v).project(camera);
+    return [(tmp.x * 0.5 + 0.5) * W, (-tmp.y * 0.5 + 0.5) * H];
+  }
+  function placeTags() {
+    tags.forEach(function (t) {
+      var q = toScreen(t.Q);
+      t.el.style.transform = 'translate(' + q[0].toFixed(1) + 'px,' + q[1].toFixed(1) + 'px) translate(-50%,-50%)';
+      if (t.ln) {
+        var p = toScreen(t.P);
+        t.ln.setAttribute('x1', q[0].toFixed(1)); t.ln.setAttribute('y1', q[1].toFixed(1));
+        t.ln.setAttribute('x2', p[0].toFixed(1)); t.ln.setAttribute('y2', p[1].toFixed(1));
+        t.dot.setAttribute('cx', p[0].toFixed(1)); t.dot.setAttribute('cy', p[1].toFixed(1));
+      }
+    });
+  }
+  function resize() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    if (!w || !h) return;
+    setView(w, h, Math.min(window.devicePixelRatio || 1, 2));
+    boilF.setAttribute('width', w); boilF.setAttribute('height', h);
+  }
+  if (window.ResizeObserver) new ResizeObserver(function () { if (cur) resize(); }).observe(stage);
+  else window.addEventListener('resize', function () { if (cur) resize(); });
+
+  function setStep(n) {
+    stepBtns.forEach(function (b, i) { b.setAttribute('aria-pressed', String(i === n)); });
+    stepText.textContent = cur.steps[n][1];
+    stage.classList.toggle('focus', n > 0);
+    tags.forEach(function (t) {
+      if (!t.ln) return;
+      var on = n > 0 && t.step === n;
+      t.el.classList.toggle('on', on);
+      t.el.setAttribute('aria-pressed', 'false');
+      t.ln.style.opacity = t.dot.style.opacity = (n === 0 || on) ? 1 : 0.2;
+    });
+  }
+  function setFuel() {
+    S.f = 0.4 + 1.3 * (fuel.value / 100);
+    if (!cur) return;
+    push.style.width = Math.round(cur.bar(S.f) * 100) + '%';
+    if (cur.m.fuelChanged) cur.m.fuelChanged();
+  }
+  function setPaused(v) {
+    S.paused = v;
+    pauseBtn.setAttribute('aria-pressed', String(v));
+    pauseBtn.textContent = v ? 'Start it' : 'Stop it';
+  }
+  fuel.addEventListener('input', setFuel);
+  cut.addEventListener('input', function () { intro = false; if (cur) setCut(+cut.value); });
+  pauseBtn.addEventListener('click', function () { setPaused(!S.paused); });
+  if (still) setPaused(true);
+
+  function show(id) {
+    if (cur) scene.remove(cur.m.root);
+    cur = inst(id);
+    scene.add(cur.m.root);
+    homeEl.hidden = true; machineEl.hidden = false;
+    $('mTitle').textContent = cur.title; $('mSub').textContent = cur.sub; $('corner').innerHTML = cur.corner;
+    $('fuelLabel').textContent = cur.fuelLabel; $('barLabel').textContent = cur.barLabel;
+    $('barLo').textContent = cur.barLo; $('barHi').textContent = cur.barHi;
+    $('fine').textContent = cur.fine;
+    var gl = $('gloss'); gl.textContent = '';
+    cur.gloss.forEach(function (g) {
+      var d = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = g[0]; dd.textContent = g[1]; d.appendChild(dt); d.appendChild(dd); gl.appendChild(d);
+    });
+
+    // name tags
+    tags.forEach(function (t) { t.el.remove(); });
+    leads.textContent = '';
+    tags = cur.tags.map(function (d) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = d[0]; b.setAttribute('aria-pressed', 'false');
+      b.id = 'chip-' + d[0].toLowerCase().replace(/\s+/g, '-');
+      stage.appendChild(b);
+      var ln = document.createElementNS(SVGNS, 'line'), dot = document.createElementNS(SVGNS, 'circle');
+      dot.setAttribute('r', 3.5);
+      leads.appendChild(ln); leads.appendChild(dot);
+      var t = { el: b, ln: ln, dot: dot, step: d[3], note: d[4],
+                P: new THREE.Vector3(d[1][0], d[1][1], d[1][2] || 0), Q: new THREE.Vector3(d[2][0], d[2][1], 0) };
+      if (cur.m.tagP) cur.m.tagP[d[0]] = t.P;
+      b.addEventListener('click', function () {
+        tags.forEach(function (o) { if (o.ln) o.el.setAttribute('aria-pressed', String(o === t)); });
+        stepText.textContent = t.note;
+      });
+      return t;
+    });
+    cur.loose.forEach(function (d) {
+      var s = document.createElement('span');
+      s.className = 'tag' + (d[3] ? ' warn' : ''); s.innerHTML = d[0];
+      stage.appendChild(s);
+      tags.push({ el: s, Q: new THREE.Vector3(d[1], d[2], 0) });
+    });
+
+    // step buttons
+    stepsEl.textContent = '';
+    stepBtns = cur.steps.map(function (s, i) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.id = 'step-' + i; b.textContent = s[0];
+      b.addEventListener('click', function () { setStep(i); });
+      stepsEl.appendChild(b);
+      return b;
+    });
+    setStep(0);
+
+    az = cur.cam.az; el = cur.cam.el;
+    fuel.value = 50; setFuel();
+    if (still) { cut.value = 100; setCut(100); }
+    else { intro = true; t0 = 0; cut.value = 0; setCut(0); }
+    resize();
+    window.scrollTo(0, 0);
+  }
+  function showHome() {
+    if (cur) scene.remove(cur.m.root);
+    cur = null;
+    machineEl.hidden = true; homeEl.hidden = false;
+    if (thumbsDirty) drawTiles();
+  }
+  function route() {
+    var id = (location.hash || '').slice(1);
+    if (DEFS[id]) show(id); else showHome();
+  }
+  window.addEventListener('hashchange', route);
+
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', function () { applyTheme(); if (!cur) drawTiles(); });
+  }
+  new MutationObserver(function () { applyTheme(); if (!cur) drawTiles(); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // drag to turn
+  var dragging = false, lx = 0, ly = 0;
+  stage.addEventListener('pointerdown', function (e) { dragging = true; lx = e.clientX; ly = e.clientY; stage.classList.add('drag'); });
+  window.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    az = clamp(az - (e.clientX - lx) * 0.007, -1.35, 1.35);
+    el = clamp(el + (e.clientY - ly) * 0.007, -0.35, 1.0);
+    lx = e.clientX; ly = e.clientY;
+  });
+  function endDrag() { dragging = false; stage.classList.remove('drag'); }
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+
+  // ---------- go ----------
+  var last = 0, boilT = 0, seed = 1;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.05, (now - last) / 1000 || 0);
+    last = now;
+    if (!cur) return;
+    if (intro) {
+      if (!t0) t0 = now;
+      var u = clamp((now - t0 - 700) / 2400, 0, 1);
+      u = u * u * (3 - 2 * u);
+      cut.value = Math.round(u * 100);
+      setCut(u * 100);
+      if (u >= 1) intro = false;
+    }
+    if (!S.paused) {
+      cur.m.update(dt);
+      boilT += dt;
+      if (boilT > 0.17) { boilT = 0; seed = seed % 4 + 1; post.uniforms.seed.value = seed; turb.setAttribute('seed', seed); }
+    }
+    cur.m.draw();
+    placeCamera();
+    placeTags();
+    drawFrame();
+  }
+  route();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
