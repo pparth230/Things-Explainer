@@ -297,11 +297,12 @@
   quad.frustumCulled = false;
   postScene.add(quad);
 
-  var col = { paper: new THREE.Color(), ink: new THREE.Color(), fire: new THREE.Color() };
+  var col = { paper: new THREE.Color(), ink: new THREE.Color(), fire: new THREE.Color(), water: new THREE.Color(), fuel: new THREE.Color() };
   var themeFns = [], thumbsDirty = true;
   function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
   function applyTheme() {
     col.paper.set(cssVar('--paper')); col.ink.set(cssVar('--ink')); col.fire.set(cssVar('--fire'));
+    col.water.set(cssVar('--water')); col.fuel.set(cssVar('--fuel'));
     mat.caseM.color.set(cssVar('--case')); mat.cap.color.set(cssVar('--fill'));
     mat.body.color.set(cssVar('--fill')); mat.metal.color.set(cssVar('--metal')); mat.metalC.color.set(cssVar('--metal'));
     mat.ring.color.copy(col.ink); mat.pane.color.copy(col.ink); mat.paneEdge.color.copy(col.ink);
@@ -384,6 +385,13 @@
           R = col.paper.r + (R - col.paper.r) * show; G = col.paper.g + (G - col.paper.g) * show; B = col.paper.b + (B - col.paper.b) * show;
         }
         colr[k] = colr[k + 3] = R; colr[k + 1] = colr[k + 4] = G; colr[k + 2] = colr[k + 5] = B;
+      },
+      // paint with any colour; show: 0 = gone, 1 = full
+      tint: function (i, c, show) {
+        var k = i * 6;
+        colr[k] = colr[k + 3] = col.paper.r + (c.r - col.paper.r) * show;
+        colr[k + 1] = colr[k + 4] = col.paper.g + (c.g - col.paper.g) * show;
+        colr[k + 2] = colr[k + 5] = col.paper.b + (c.b - col.paper.b) * show;
       },
       put: function (i, x0, y0, z0, x1, y1, z1) {
         var k = i * 6;
@@ -751,23 +759,27 @@
   }
 
   // =====================================================================
-  // machine 3: flying fire tower (rocket)
+  // machine 3: flying fire tower (rocket), two parts that come apart
   // =====================================================================
   function buildRocket() {
-    var root = new THREE.Group();
-    function lathe(pts, seg) { return new THREE.LatheGeometry(prof(pts, 0, true), seg || 56); }
-    function rodX(r, len) { var g = new THREE.CylinderGeometry(r, r, len, 14); g.rotateZ(Math.PI / 2); return g; }
-    function discZ(r, t) { var g = new THREE.CylinderGeometry(r, r, t, 28); g.rotateX(Math.PI / 2); return g; }
-
-    // outside skin with the pointed top; outlines here are [how high, how far from the middle]
-    addCut(root, lathe([[-170,80],[250,80],[310,62],[365,34],[398,8],[400,0],[394,0],[392,6],[360,30],[308,57],[249,76],[-170,76]]));
-
-    // two big cans and what is in them
-    function tankPts(y0, y1) {
-      return [[y0,0],[y0+6,30],[y0+18,55],[y0+38,72],[y1-38,72],[y1-18,55],[y1-6,30],[y1,0],
-              [y1-3,0],[y1-9,28],[y1-20,52],[y1-39,69],[y0+39,69],[y0+20,52],[y0+9,28],[y0+3,0]];
+    var root = new THREE.Group(), s1 = new THREE.Group(), s2 = new THREE.Group(), cargo = new THREE.Group();
+    root.add(s1); root.add(s2); root.add(cargo);
+    function V3(x, y, z) { return new THREE.Vector3(x, y, z || 0); }
+    // outlines here are [how high, how far from the middle]
+    function lathe(pts, seg, p0, pl) { return new THREE.LatheGeometry(prof(pts, 0, true), seg || 56, p0 || 0, pl || Math.PI * 2); }
+    var UP = new THREE.Vector3(0, 1, 0);
+    function tube(parent, a, b, r, m) {
+      var d = new THREE.Vector3().subVectors(b, a), len = d.length();
+      var me = addWhole(parent, new THREE.CylinderGeometry(r, r, len, 12), m || mat.metal);
+      me.position.copy(a).add(b).multiplyScalar(0.5);
+      me.quaternion.setFromUnitVectors(UP, d.normalize());
+      return me;
     }
-    function liquid(y0, y1, cssName, grey) {
+    function tankPts(y0, y1, d) {
+      return [[y0,0],[y0+0.16*d,30],[y0+0.47*d,55],[y0+d,72],[y1-d,72],[y1-0.47*d,55],[y1-0.16*d,30],[y1,0],
+              [y1-3,0],[y1-3-0.16*d,28],[y1-3-0.47*d,52],[y1-d-1,69],[y0+d+1,69],[y0+3+0.47*d,52],[y0+3+0.16*d,28],[y0+3,0]];
+    }
+    function liquid(parent, y0, y1, d, cssName, grey) {
       var plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), y1), cl = [cutPlane, plane];
       var m = new THREE.MeshLambertMaterial({ clippingPlanes: cl });
       var cap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: cl });
@@ -775,113 +787,247 @@
       var ncap = new THREE.MeshBasicMaterial({ color: grey, side: THREE.BackSide, clippingPlanes: cl });
       function theme() { m.color.set(cssVar(cssName)); cap.color.set(cssVar(cssName)); }
       themeFns.push(theme); theme();
-      var geo = lathe([[y0+4,0],[y0+10,27],[y0+21,50.5],[y0+40,67.5],[y1-40,67.5],[y1-21,50.5],[y1-10,27],[y1-4,0]]);
-      var a = new THREE.Mesh(geo, m); a.userData.n = nm; root.add(a);
-      var b = new THREE.Mesh(geo, cap); b.userData.n = ncap; root.add(b);
+      var geo = lathe([[y0+4,0],[y0+4+0.16*d,27],[y0+4+0.47*d,50.5],[y0+d+2,67.5],[y1-d-2,67.5],[y1-4-0.47*d,50.5],[y1-4-0.16*d,27],[y1-4,0]]);
+      var a = new THREE.Mesh(geo, m); a.userData.n = nm; parent.add(a);
+      var b = new THREE.Mesh(geo, cap); b.userData.n = ncap; parent.add(b);
       return { plane: plane, lo: y0 + 4, hi: y1 - 4 };
     }
-    addCut(root, lathe(tankPts(60, 235)));
-    addCut(root, lathe(tankPts(-130, 35)));
-    var cold = liquid(60, 235, '--water', 0x555555), fuel = liquid(-130, 35, '--fuel', 0x888888);
 
-    // the thing it carries, up in the pointed top
-    addWhole(root, new THREE.BoxGeometry(44, 44, 44), mat.metal).position.y = 285;
-    [-42, 42].forEach(function (x) { addWhole(root, new THREE.BoxGeometry(38, 16, 2), mat.body).position.set(x, 285, 0); });
+    // ---------------- first part (the big bottom one) ----------------
+    addCut(s1, lathe([[-170,80],[165,80],[165,76],[-170,76]]));               // skin, with the empty ring at the top
+    addCut(s1, lathe([[161,81.5],[168,81.5],[168,80],[161,80]]));             // band where the two parts join
+    addCut(s1, lathe(tankPts(-130, -20, 38)));
+    addCut(s1, lathe(tankPts(-5, 100, 38)));
+    var fuel1 = liquid(s1, -130, -20, 38, '--fuel', 0x888888), cold1 = liquid(s1, -5, 100, 38, '--water', 0x555555);
 
-    // pipes: cold air comes down through the middle of the fire water can
-    addWhole(root, new THREE.CylinderGeometry(6, 6, 212, 14), mat.metal).position.y = -45;
-    addWhole(root, rodX(6, 34), mat.metal).position.set(-15, -150, 0);
-    addWhole(root, new THREE.CylinderGeometry(6, 6, 30, 14), mat.metal).position.set(30, -138, 0);
-    [-22, 22].forEach(function (x) { addWhole(root, new THREE.CylinderGeometry(5, 5, 16, 12), mat.metal).position.set(x, -186, 0); });
+    // cold air comes down a pipe through the middle of the fire water can, then over to its wheel
+    tube(s1, V3(0, -5), V3(0, -150), 6);
+    tube(s1, V3(0, -150), V3(-34, -150), 6);
+    tube(s1, V3(-34, -150), V3(-34, -171), 6);
+    tube(s1, V3(-34, -203), V3(-14, -211), 5);                                // cold air: wheel to top of fire room
+    tube(s1, V3(34, -123), V3(34, -171), 6);                                  // fire water: can to its wheel
+    tube(s1, V3(34, -203), V3(60, -222), 5);                                  // fire water: wheel, down the outside...
+    tube(s1, V3(60, -222), V3(60, -338), 5);                                  // ...to the ring at the bottom of the bell
+    var ringGeo = new THREE.TorusGeometry(57, 5, 10, 44); ringGeo.rotateX(Math.PI / 2);
+    addCut(s1, ringGeo).position.y = -340;
 
-    // pushing wheels, joined by one small stick so they turn together
-    var wheels = [-30, 30].map(function (x) {
+    // three wheels on one stick: cold air wheel, middle wheel, fire water wheel
+    var wheels = [-34, 0, 34].map(function (x) {
       var g = new THREE.Group();
-      g.position.set(x, -168, 0);
-      addWhole(g, discZ(16, 9), mat.body);
-      for (var i = 0; i < 6; i++) {
-        var bl = addWhole(g, new THREE.BoxGeometry(13, 3, 12), mat.metal), a = i * Math.PI / 3;
-        bl.position.set(9 * Math.cos(a), 9 * Math.sin(a), 0);
-        bl.rotation.z = a + 0.5;
+      g.position.set(x, -187, 0);
+      g.rotation.z = -Math.PI / 2;
+      addCut(g, new THREE.LatheGeometry(prof([[-9,17],[9,17],[9,14],[-9,14]], 0, true), 28));
+      var rot = new THREE.Group();
+      addWhole(rot, new THREE.CylinderGeometry(4, 4, 18, 12), mat.body);
+      for (var i = 0; i < 8; i++) {
+        var pivot = new THREE.Group();
+        pivot.rotation.y = i * Math.PI / 4;
+        var bl = addWhole(pivot, new THREE.BoxGeometry(10, 10, 2), mat.metal);
+        bl.position.x = 9; bl.rotation.x = 0.5;
+        rot.add(pivot);
       }
-      root.add(g);
-      return g;
+      g.add(rot); s1.add(g);
+      return rot;
     });
-    addWhole(root, rodX(3, 60), mat.metal).position.set(0, -168, -8);
+    tube(s1, V3(-46, -187), V3(46, -187), 3);
 
-    // fire room and bell, one piece
-    addCut(root, lathe(chaikin([[-190,0],[-190,36],[-240,36],[-262,18],[-300,44],[-340,64],
-                                [-340,60],[-300,40],[-262,13],[-240,31],[-195,31],[-195,0]])));
+    // the small fire that turns the middle wheel, and the thin pipe its hot air leaves by
+    addCut(s1, lathe([[-171,0],[-171,8],[-157,8],[-157,0],[-159,0],[-159,6],[-169,6],[-169,0]], 20));
+    var smallFire = new THREE.Mesh(new THREE.SphereGeometry(4.5, 12, 10), mat.flame2);
+    smallFire.position.y = -164; s1.add(smallFire);
+    tube(s1, V3(-20, -172), V3(-6, -166), 2);
+    tube(s1, V3(20, -172), V3(6, -166), 2);
+    tube(s1, V3(0, -187, -14), V3(0, -187, -62), 4);
+    tube(s1, V3(0, -187, -62), V3(0, -327, -62), 4);
+
+    // fire room and bell in one piece, and the plate with holes at the top of the fire room
+    addCut(s1, lathe(chaikin([[-210,0],[-210,36],[-262,36],[-287,18],[-325,44],[-365,64],
+                              [-365,60],[-325,40],[-287,13],[-262,31],[-214,31],[-214,0]])));
+    addCut(s1, lathe([[-218,0],[-218,30.5],[-223,30.5],[-223,0]], 40), mat.metalC);
 
     // little wings
     var fin = new THREE.Shape();
     [[78,-60],[78,-170],[140,-205],[140,-150],[78,-60]].forEach(function (p, i) { if (i) fin.lineTo(p[0], p[1]); else fin.moveTo(p[0], p[1]); });
     var finGeo = new THREE.ExtrudeGeometry(fin, { depth: 6, bevelEnabled: false });
     finGeo.translate(0, 0, -3);
-    for (var k = 0; k < 4; k++) addCut(root, finGeo).rotation.y = Math.PI / 4 + k * Math.PI / 2;
+    for (var k = 0; k < 4; k++) addCut(s1, finGeo).rotation.y = Math.PI / 4 + k * Math.PI / 2;
 
-    // fire: a ball in the fire room and a long tail out of the bell
-    var ball = new THREE.Mesh(new THREE.SphereGeometry(25, 20, 14), mat.flame2);
-    ball.position.y = -220;
-    root.add(ball);
-    var tailA = new THREE.Mesh(new THREE.LatheGeometry(prof([[0,0],[0,56],[-60,50],[-140,30],[-200,0]], 0, false), 32), mat.flame);
-    var tailB = new THREE.Mesh(new THREE.LatheGeometry(prof([[0,0],[0,30],[-50,26],[-110,14],[-150,0]], 0, false), 32), mat.flame2);
-    tailA.position.y = tailB.position.y = -338;
-    root.add(tailA); root.add(tailB);
-
-    // fast lines of hot air shooting down
-    var N = 150, parts = [], L = lineSet(root, N, mat.dots);
-    var RAD = [[195,28],[240,28],[262,11],[300,36],[340,55],[700,105]], VEL = [[195,90],[262,320],[340,680],[700,680]];
-    function spawn(p, far) { p.y = -200 - (far ? rnd(0, 440) : rnd(0, 30)); p.u = Math.sqrt(Math.random()); p.a = rnd(0, Math.PI * 2); p.dead = false; p.v = 100; }
-    for (var i = 0; i < N; i++) { var p = {}; spawn(p, true); parts.push(p); }
-
-    var level = 1, phase = 'burn', wait = 0, flameT = 0, burn = S.f;
-    function flicker() {
-      var on = phase === 'burn';
-      tailA.scale.y = on ? (0.55 + 0.5 * S.f) * rnd(0.9, 1.1) : 0.001;
-      tailB.scale.y = on ? (0.55 + 0.5 * S.f) * rnd(0.8, 1.15) : 0.001;
-      var s = on ? rnd(0.9, 1.08) : 0.001;
-      ball.scale.set(s, s, s);
+    function tails(parent, y, wide) {
+      var a = new THREE.Mesh(new THREE.LatheGeometry(prof([[0,0],[0,56],[-60,50],[-140,30],[-200,0]], 0, false), 32), mat.flame);
+      var b = new THREE.Mesh(new THREE.LatheGeometry(prof([[0,0],[0,30],[-50,26],[-110,14],[-150,0]], 0, false), 32), mat.flame2);
+      a.position.y = b.position.y = y;
+      a.scale.x = a.scale.z = b.scale.x = b.scale.z = wide;
+      parent.add(a); parent.add(b);
+      return [a, b];
     }
-    function setLevels() {
-      cold.plane.constant = cold.lo + level * (cold.hi - cold.lo);
-      fuel.plane.constant = fuel.lo + level * (fuel.hi - fuel.lo);
-    }
-    setLevels(); flicker();
+    var ball1 = new THREE.Mesh(new THREE.SphereGeometry(22, 20, 14), mat.flame2);
+    ball1.position.y = -246; s1.add(ball1);
+    var tail1 = tails(s1, -363, 1);
 
-    return {
-      root: root,
-      update: function (dt) {
-        if (phase === 'burn') { level -= 0.045 * S.f * dt; if (level <= 0.04) { phase = 'out'; wait = 0; flicker(); } }
-        else if (phase === 'out') { wait += dt; if (wait > 1.4) phase = 'fill'; }
-        else { level += dt / 1.5; if (level >= 1) { level = 1; phase = 'burn'; } }
-        setLevels();
-        burn = phase === 'burn' ? S.f : 0;
-        wheels[0].rotation.z += 9 * burn * dt;
-        wheels[1].rotation.z -= 9 * burn * dt;
-        flameT += dt;
-        if (flameT > 0.09) { flameT = 0; flicker(); }
-        for (var i = 0; i < N; i++) {
-          var p = parts[i];
-          if (p.dead) { if (burn > 0 && Math.random() < 0.2) spawn(p, false); continue; }
-          p.v = at(VEL, -p.y) * Math.max(S.f, 0.4);
-          p.y -= p.v * dt;
-          if (p.y < -640) { if (burn > 0) spawn(p, false); else p.dead = true; }
-        }
-      },
-      draw: function () {
-        for (var i = 0; i < N; i++) {
-          var p = parts[i];
-          if (p.dead) { L.put(i, 0, 0, 0, 0, 0, 0); L.paint(i, 1, 0); continue; }
-          var len = Math.max(5, p.v * 0.05), c = Math.cos(p.a), s = Math.sin(p.a);
-          var r0 = at(RAD, -(p.y + len)) * p.u, r1 = at(RAD, -p.y) * p.u;
-          L.put(i, r0 * c, p.y + len, r0 * s, r1 * c, p.y, r1 * s);
-          L.paint(i, 1, clamp(Math.min((-p.y - 195) / 30, (640 + p.y) / 260), 0, 1) * 0.95);
-        }
-        L.flush();
-      },
-      fuelChanged: flicker
+    // ---------------- second part (the small top one) ----------------
+    addCut(s2, lathe([[168,80],[300,80],[300,76],[168,76]]));
+    addCut(s2, lathe(tankPts(190, 240, 20)));
+    addCut(s2, lathe(tankPts(245, 295, 20)));
+    var fuel2 = liquid(s2, 190, 240, 20, '--fuel', 0x888888), cold2 = liquid(s2, 245, 295, 20, '--water', 0x555555);
+    tube(s2, V3(0, 181), V3(0, 191), 6);
+    addCut(s2, lathe(chaikin([[182,0],[182,18],[160,18],[148,8],[132,24],[118,38],
+                              [118,35],[132,21],[148,5],[160,15],[179,15],[179,0]])));
+    var ball2 = new THREE.Mesh(new THREE.SphereGeometry(10, 16, 12), mat.flame2);
+    ball2.position.y = 168; s2.add(ball2);
+    var tail2 = tails(s2, 119, 0.6);
+
+    // top cover in two halves, and the thing it carries
+    var F = [[300,80],[350,66],[390,40],[415,10],[420,0],[414,0],[410,8],[387,36],[348,62],[300,76]];
+    var fairR = addCut(root, lathe(F, 40, 0, Math.PI)), fairL = addCut(root, lathe(F, 40, Math.PI, Math.PI));
+    addWhole(cargo, new THREE.BoxGeometry(40, 40, 40), mat.metal).position.y = 335;
+    [-39, 39].forEach(function (x) { addWhole(cargo, new THREE.BoxGeometry(36, 16, 2), mat.body).position.set(x, 335, 0); });
+
+    // ---------------- moving lines ----------------
+    var N1 = 130, N2 = 60, NS = 40, NW = 20, NG = 10, N = N1 + N2 + NS + NW + NG, parts = [], L = lineSet(root, N, mat.dots);
+    var RAD1 = [[225,28],[262,28],[287,11],[325,36],[365,55],[720,105]], VEL1 = [[225,90],[287,320],[365,680],[720,680]];
+    var RAD2 = [[8,13],[32,4],[60,33],[400,80]], VEL2 = [[8,80],[32,300],[60,600],[400,600]];
+    var MID = [[210,33.5],[262,33.5],[287,15.5],[325,42],[365,62]];
+    function spawn1(p, far) { p.y = -230 - (far ? rnd(0, 430) : rnd(0, 25)); p.u = Math.sqrt(Math.random()); p.a = rnd(0, Math.PI * 2); p.dead = false; p.v = 100; }
+    function spawn2(p) { p.s = 8 + rnd(0, 20); p.u = Math.sqrt(Math.random()); p.a = rnd(0, Math.PI * 2); p.dead = false; p.v = 100; }
+    for (var i = 0; i < N; i++) {
+      var p = {};
+      if (i < N1) { p.k = 1; spawn1(p, true); }
+      else if (i < N1 + N2) { p.k = 2; p.dead = true; p.s = 8; p.u = 0; p.a = 0; p.v = 100; }
+      else if (i < N1 + N2 + NS) { p.k = 3; p.t = Math.random(); p.r = [5, 12, 19, 26][i % 4]; p.a = rnd(0, Math.PI * 2); p.cold = i % 2 === 0; }
+      else if (i < N1 + N2 + NS + NW) { p.k = 4; p.y = rnd(-340, -222); p.side = i % 2 ? 1 : -1; }
+      else { p.k = 5; p.y = rnd(-380, -330); }
+      parts.push(p);
+    }
+
+    // ---------------- the flight, over and over ----------------
+    var VIEW2 = { cx: 0, cy: 255, hw: 300, hh: 240 };
+    var phase = 'burn1', T = 0, lv1 = 1, lv2 = 1, mode = null, apart = false, tApart = 0, backFrom = 0, flameT = 0, b1 = S.f, b2 = 0;
+    var tagP = {}, base = {}, MOVERS = ['First part', 'Cold air can', 'Fire water can', 'Empty ring', 'Little wings'];
+    var CAPS = {
+      burn1: 'First part is burning', refill: 'Filling it up again', cut1: 'First part is empty. Its fire stops',
+      sep: 'Let go of the first part', burn2: 'Second part is burning', free: 'Empty. The thing it carries is on its own now',
+      back: 'Back on the ground. Fill it up again'
     };
+    var api = { root: root, tagP: tagP, caption: CAPS.burn1, view: null };
+    function halves(t) {
+      fairR.position.set(40 * t * t, -50 * t * t, 0); fairR.rotation.z = -0.35 * t;
+      fairL.position.set(-40 * t * t, -50 * t * t, 0); fairL.rotation.z = 0.35 * t;
+    }
+    function place() {
+      s1.position.y = apart ? Math.max(-1500, -120 * tApart * tApart) : s1.position.y;
+      cold1.plane.constant = cold1.lo + lv1 * (cold1.hi - cold1.lo) + s1.position.y;
+      fuel1.plane.constant = fuel1.lo + lv1 * (fuel1.hi - fuel1.lo) + s1.position.y;
+      cold2.plane.constant = cold2.lo + lv2 * (cold2.hi - cold2.lo);
+      fuel2.plane.constant = fuel2.lo + lv2 * (fuel2.hi - fuel2.lo);
+      MOVERS.forEach(function (n) {
+        if (!tagP[n]) return;
+        if (base[n] === undefined) base[n] = tagP[n].y;
+        tagP[n].y = base[n] + s1.position.y;
+      });
+    }
+    function reset() {
+      phase = 'burn1'; T = 0; lv1 = 1; lv2 = 1; apart = false; tApart = 0;
+      s1.position.set(0, 0, 0); s1.rotation.z = 0; cargo.position.y = 0; halves(0);
+    }
+    function flicker() {
+      var s;
+      tail1[0].scale.y = b1 > 0 ? (0.55 + 0.5 * S.f) * rnd(0.9, 1.1) : 0.001;
+      tail1[1].scale.y = b1 > 0 ? (0.55 + 0.5 * S.f) * rnd(0.8, 1.15) : 0.001;
+      s = b1 > 0 ? rnd(0.9, 1.08) : 0.001; ball1.scale.set(s, s * 0.8, s);
+      s = b1 > 0 ? rnd(0.8, 1.2) : 0.001; smallFire.scale.set(s, s, s);
+      tail2[0].scale.y = b2 > 0 ? (0.35 + 0.3 * S.f) * rnd(0.9, 1.1) : 0.001;
+      tail2[1].scale.y = b2 > 0 ? (0.35 + 0.3 * S.f) * rnd(0.8, 1.15) : 0.001;
+      s = b2 > 0 ? rnd(0.9, 1.08) : 0.001; ball2.scale.set(s, s, s);
+    }
+    place(); flicker();
+
+    api.setMode = function (m) {
+      mode = m;
+      if (m === 'eng' && phase !== 'burn1' && phase !== 'refill') reset();
+      if (m === 'split') { reset(); lv1 = 0.3; }
+    };
+    api.update = function (dt) {
+      var f = S.f, u;
+      T += dt;
+      if (phase === 'burn1') {
+        lv1 -= 0.08 * f * dt;
+        if (lv1 <= 0.03) { phase = mode === 'eng' ? 'refill' : 'cut1'; T = 0; }
+      } else if (phase === 'refill') {
+        if (T > 1) { lv1 += dt / 1.2; if (lv1 >= 1) { lv1 = 1; phase = 'burn1'; } }
+      } else if (phase === 'cut1') {
+        if (T > 0.8) { phase = 'sep'; T = 0; apart = true; tApart = 0; lv1 = 0; }
+      } else if (phase === 'sep') {
+        if (T > 1.0) { phase = 'burn2'; T = 0; }
+      } else if (phase === 'burn2') {
+        lv2 -= 0.13 * f * dt;
+        if (T > 1) halves(Math.min(T - 1, 4));
+        if (lv2 <= 0.03) { phase = 'free'; T = 0; lv2 = 0; }
+      } else if (phase === 'free') {
+        cargo.position.y = 28 * T;
+        if (T > 3) { phase = 'back'; T = 0; apart = false; backFrom = cargo.position.y; }
+      } else if (phase === 'back') {
+        u = clamp(T / 1.4, 0, 1); u = u * u * (3 - 2 * u);
+        s1.position.y = -700 * (1 - u); s1.rotation.z = 0;
+        cargo.position.y = backFrom * (1 - u);
+        halves(4 * (1 - u));
+        lv1 = u; lv2 = u;
+        if (T > 1.8) reset();
+      }
+      if (apart) { tApart += dt; s1.rotation.z = Math.min(0.25, 0.03 * tApart); }
+      place();
+      b1 = phase === 'burn1' ? f : 0;
+      b2 = phase === 'burn2' ? f : 0;
+      api.caption = CAPS[phase];
+      api.view = mode !== 'eng' && (phase === 'burn2' || phase === 'free' || (phase === 'sep' && T > 0.5)) ? VIEW2 : null;
+      wheels.forEach(function (w, i) { w.rotation.y += 14 * b1 * dt; });
+      flameT += dt;
+      if (flameT > 0.09) { flameT = 0; flicker(); }
+      for (var i = 0; i < N; i++) {
+        var p = parts[i];
+        if (p.k === 1) {
+          if (p.dead) { if (b1 > 0 && Math.random() < 0.2) spawn1(p, false); continue; }
+          p.v = at(VEL1, -p.y) * Math.max(f, 0.4); p.y -= p.v * dt;
+          if (p.y < -665) { if (b1 > 0) spawn1(p, false); else p.dead = true; }
+        } else if (p.k === 2) {
+          if (p.dead) { if (b2 > 0 && Math.random() < 0.2) spawn2(p); continue; }
+          p.v = at(VEL2, p.s) * Math.max(f, 0.4); p.s += p.v * dt;
+          if (p.s > 330) { if (b2 > 0) spawn2(p); else p.dead = true; }
+        } else if (p.k === 3) { p.t += 3 * f * dt; if (p.t > 1) p.t -= 1; }
+        else if (p.k === 4) { p.y += 60 * f * dt; if (p.y > -222) p.y = -340; }
+        else { p.y -= 80 * dt; if (p.y < -380) p.y = -330; }
+      }
+    };
+    api.draw = function () {
+      for (var i = 0; i < N; i++) {
+        var p = parts[i], len, c, s, r0, r1, y;
+        if (p.k === 1 || p.k === 2) {
+          if (p.dead) { L.put(i, 0, 0, 0, 0, 0, 0); L.paint(i, 1, 0); continue; }
+          len = Math.max(5, p.v * 0.05); c = Math.cos(p.a); s = Math.sin(p.a);
+          if (p.k === 1) {
+            r0 = at(RAD1, -(p.y + len)) * p.u; r1 = at(RAD1, -p.y) * p.u;
+            L.put(i, r0 * c, p.y + len, r0 * s, r1 * c, p.y, r1 * s);
+            L.paint(i, 1, clamp(Math.min((-p.y - 225) / 25, (665 + p.y) / 260), 0, 1) * 0.95);
+          } else {
+            r0 = at(RAD2, p.s - len) * p.u; r1 = at(RAD2, p.s) * p.u;
+            L.put(i, r0 * c, 178 - p.s + len, r0 * s, r1 * c, 178 - p.s, r1 * s);
+            L.paint(i, 1, clamp(Math.min((p.s - 8) / 20, (330 - p.s) / 150), 0, 1) * 0.95);
+          }
+        } else if (p.k === 3) {      // thin lines of cold air and fire water coming through the plate and meeting
+          y = -223 - 18 * p.t; r0 = p.r + (p.cold ? 3 : -3) * p.t; c = Math.cos(p.a); s = Math.sin(p.a);
+          L.put(i, r0 * c, y + 6, r0 * s, r0 * c, y, r0 * s);
+          L.tint(i, p.cold ? col.water : col.fuel, b1 > 0 ? 1 : 0);
+        } else if (p.k === 4) {      // fire water running up inside the bell wall
+          L.put(i, p.side * at(MID, -(p.y - 5)), p.y - 5, 1, p.side * at(MID, -p.y), p.y, 1);
+          L.tint(i, col.fuel, b1 > 0 ? 1 : 0);
+        } else {                     // hot air from the small fire leaving its thin pipe
+          L.put(i, 0, p.y + 5, -62, 0, p.y, -62);
+          L.paint(i, 0.5, b1 > 0 ? 0.6 * clamp((p.y + 380) / 30, 0, 1) : 0);
+        }
+      }
+      L.flush();
+    };
+    api.fuelChanged = flicker;
+    return api;
   }
 
   // =====================================================================
@@ -959,27 +1105,42 @@
       fuelLabel: 'How much goes into the fire', barLabel: 'How hard it pushes up', barLo: 'soft', barHi: 'hard',
       bar: function (f) { return f / 1.7; },
       steps: [
-        ['The whole thing', 'A flying fire tower is mostly two big cans. One holds fire water. The other holds air made so cold that you can pour it. The two meet in a small room at the bottom and burn, and the fire shoots down out of the open end. Throwing fire down is what pushes the tower up. Press a name on the drawing to hear about that part.'],
-        ['1. Bring your own air', 'Fire needs air to burn, and up in space there is none. So the tower carries its own, made very cold so that a lot of it fits in a can. Almost everything you see from the outside is these two cans. The part that goes to space is the small thing at the very top.'],
-        ['2. Push it in fast', 'Two wheels turn very fast and push the fire water and the cold air down into the fire room. A very big tower can use up enough to fill a pool in half a minute, so the cans are empty after only a few minutes.'],
-        ['3. Burn it', 'In the fire room the two mix and burn. The fire is hotter than anything in a kitchen, hot enough to turn the room itself soft, so the fire water is first sent around the outside of the walls to keep them cool.'],
-        ['4. Shoot it down', 'The hot air can only leave through one small opening, and after that the walls open wide like a bell. That shape makes it go faster than sound. The more stuff it throws down, and the faster, the harder the tower is pushed up. It is not pushing on the ground or on the air. It is pushing on its own fire.']
+        ['The whole thing', 'A flying fire tower is really two towers, one on top of the other. Each is mostly two big cans. One holds fire water. The other holds air made so cold that you can pour it. They meet in a small room at the bottom and burn, and the fire shoots down out of the open end. Throwing fire down is what pushes the tower up. When the bottom tower is empty it drops off, and the top one lights. Press a name on the drawing to hear about that part.'],
+        ['1. Bring your own air', 'Fire needs air to burn, and up in space there is none. So the tower carries its own, made very cold so that a lot of it fits in a can. Almost everything you see from the outside is cans. The part that is meant to stay in space is the small thing at the very top.'],
+        ['2. Push it in fast', 'Look closer at the bottom. The fire room needs fire water and cold air much faster than they would fall in by themselves, so each one gets a pushing wheel. To turn those wheels, a little of each is burned in a small fire of its own. The hot air from that small fire turns a middle wheel on the same stick, and then leaves through a thin pipe at the back.',
+          { key: 'eng', mode: 'eng', cam: { cx: 0, cy: -265, hw: 235, hh: 150 } }],
+        ['3. Burn it', 'The cold air goes straight to the top of the fire room. The fire water takes the long way: down a pipe to a ring at the bottom of the bell, then up inside the walls, which keeps the walls from getting soft. At the top, both are pushed through a plate full of small holes. The thin lines hit each other, break into tiny drops, mix, and burn. The fire only has to be lit once. After that, new drops burn as soon as they meet it.',
+          { key: 'eng', mode: 'eng', cam: { cx: 0, cy: -265, hw: 235, hh: 150 } }],
+        ['4. Shoot it down', 'Burning turns the drops into very hot air that needs far more room. The only way out is one small opening. Past it, the walls open wide like a bell, and that shape makes the hot air go faster than sound. The more stuff the tower throws down, and the faster, the harder it is pushed up. It is not pushing on the ground or on the air. It is pushing on its own fire.',
+          { key: 'eng', mode: 'eng', cam: { cx: 0, cy: -265, hw: 235, hh: 150 } }],
+        ['5. Drop the empty part', 'Empty cans are just weight. So when the first part has used everything up, its fire stops and the tower lets go of it. The second part is small and light, with its own cans and its own fire room, and it lights once it is clear. Then the top cover comes off in two halves. When the second part is empty too, the thing it carries is going fast enough to keep falling around the world without coming down.',
+          { mode: 'split' }]
       ],
       tags: [
-        ['Thing it carries', [0, 285], [-255, 335], 1, 'Thing it carries: this small box is the only part that is meant to get to space. Everything under it is there just to lift it.'],
-        ['Cold air can', [-40, 160], [-270, 185], 1, 'Cold air can: air made so cold that you can pour it like water. Fire needs air to burn and space has none, so the tower brings its own.'],
-        ['Fire water can', [40, -40], [270, 30], 1, 'Fire water can: this holds the stuff that burns. It is a lot like what goes into the fire wind pusher on a flying machine.'],
-        ['Middle pipe', [-6, -80], [-270, -60], 2, 'Middle pipe: the cold air runs down a pipe right through the middle of the fire water can to reach the bottom.'],
-        ['Pushing wheels', [30, -168], [270, -140], 2, 'Pushing wheels: they turn very fast and push fire water and cold air into the fire room much faster than they would fall in by themselves.'],
-        ['Fire room', [0, -220], [-270, -225], 3, 'Fire room: fire water and cold air mix here and burn. It is small, but all the pushing starts here.'],
-        ['Bell', [48, -315], [270, -305], 4, 'Bell: the hot air leaves through a small opening and then the walls open wide. This shape makes the hot air go faster than sound.'],
-        ['Little wings', [-85, -185, -85], [-270, -350], 4, 'Little wings: they keep the tower pointing the right way while it is still down in the air.']
+        ['Thing it carries', [0, 335], [-255, 385], 5, 'Thing it carries: this small box is the only part that is meant to stay in space. Everything under it is there just to get it going fast enough.'],
+        ['Top cover', [55, 360], [255, 385], 5, 'Top cover: it keeps the wind off the thing it carries. High up, where the air is too thin to matter, it comes off in two halves so there is less to lift.'],
+        ['Second part', [78, 235], [270, 245], 5, 'Second part: a smaller tower riding on top, with its own cans and its own fire room. It lights only after the first part has dropped away.'],
+        ['Empty ring', [78, 140], [270, 140], 5, 'Empty ring: the bell of the second part sits inside it. This is where the tower comes apart.'],
+        ['First part', [78, -60], [270, -70], 5, 'First part: the big bottom part. It does the hard work of lifting everything off the ground and up through the thick air. Once its cans are empty it is only weight, so it is let go.'],
+        ['Cold air can', [-40, 50], [-270, 60], 1, 'Cold air can: air made so cold that you can pour it like water. Fire needs air to burn and space has none, so the tower brings its own.'],
+        ['Fire water can', [-40, -75], [-270, -80], 1, 'Fire water can: this holds the stuff that burns. The cold air gets down to the bottom through a pipe that runs right through the middle of this can.'],
+        ['Little wings', [-85, -185, -85], [-270, -330], 9, 'Little wings: they keep the tower pointing the right way while it is still down in the air.'],
+        ['Small fire', [0, -164], [-175, -140], 2, 'Small fire: a little fire water and cold air are burned here, away from the big fire, just to make hot air that turns the middle wheel.', 'eng'],
+        ['Cold air wheel', [-34, -187], [-175, -185], 2, 'Cold air wheel: it pushes the cold air into the top of the fire room.', 'eng'],
+        ['Fire water wheel', [34, -187], [175, -150], 2, 'Fire water wheel: it pushes the fire water down the outside pipe. All three wheels sit on one stick, so the middle one turns the other two.', 'eng'],
+        ['Wall pipe', [60, -280], [175, -250], 3, 'Wall pipe: the fire water goes down this pipe to a ring, then back up inside the walls of the bell and the fire room. The walls give their heat to the fire water, so they do not get soft.', 'eng'],
+        ['Plate with holes', [-15, -220], [-175, -225], 3, 'Plate with holes: fire water and cold air are pushed through many small holes that point at each other. The thin lines hit, break into tiny drops and mix.', 'eng'],
+        ['Fire room', [-5, -250], [-175, -262], 3, 'Fire room: the drops burn here and turn into very hot air. It is small, but all the pushing starts here.', 'eng'],
+        ['Small opening', [-12, -287], [-175, -300], 4, 'Small opening: all the hot air has to go through here. It is going as fast as sound when it does.', 'eng'],
+        ['Bell', [-50, -345], [-175, -350], 4, 'Bell: past the small opening the walls open wide. As the hot air spreads out it gets even faster, and it pushes on the bell walls as it goes.', 'eng']
       ],
-      loose: [['Tower goes up &uarr;', 190, 370], ['Fire goes down &darr;', 170, -440], ['Don\'t stand<br>under it', -170, -440, 1]],
-      gloss: [['Flying fire tower', 'rocket'], ['Fire water', 'fuel (like kerosene)'], ['Cold air you can pour', 'liquid oxygen'],
-              ['Pushing wheels', 'turbopumps'], ['Fire room', 'combustion chamber'], ['Bell', 'nozzle'],
-              ['Thing it carries', 'payload'], ['Little wings', 'fins']],
-      fine: 'When the cans are empty the fire stops. This one fills up again by itself so you can keep watching. Real ones let go of their empty cans on the way up so there is less to carry, and then light a smaller tower that was riding on top.'
+      loose: [['Tower goes up &uarr;', 190, 405], ['Fire goes down &darr;', 170, -440], ['Don\'t stand<br>under it', -170, -440, 1]],
+      gloss: [['Flying fire tower', 'rocket'], ['First part, second part', 'first stage, second stage'], ['Empty ring', 'interstage'],
+              ['Top cover', 'fairing'], ['Thing it carries', 'payload'], ['Fire water', 'fuel (like kerosene)'],
+              ['Cold air you can pour', 'liquid oxygen'], ['Pushing wheels', 'turbopumps'], ['Small fire', 'gas generator'],
+              ['Middle wheel', 'turbine'], ['Plate with holes', 'injector'], ['Fire room', 'combustion chamber'],
+              ['Small opening', 'throat'], ['Bell', 'nozzle'], ['Fire water inside the walls', 'regenerative cooling'], ['Little wings', 'fins']],
+      fine: 'This is one common way to build one. Real towers come in many kinds, and some bring the first part back down and land it to use again. Here everything goes back together by itself so you can keep watching.'
     }
   };
   var ORDER = ['jet', 'steam', 'rocket'];
@@ -1000,6 +1161,8 @@
   // camera, drawing a frame, tiles
   // =====================================================================
   var cur = null, az = -0.5, el = 0.3, W = 1, H = 1, tmp = new THREE.Vector3();
+  var camNow = { cx: 0, cy: 0, hw: 500, hh: 300 }, stepCam = null, stepKey = null, lastCap = '';
+  function copyCam(c) { camNow.cx = c.cx; camNow.cy = c.cy; camNow.hw = c.hw; camNow.hh = c.hh; }
   function setView(w, h, dpr) {
     W = w; H = h;
     renderer.setPixelRatio(dpr);
@@ -1012,7 +1175,7 @@
     post.uniforms.px.value = dpr;
   }
   function placeCamera() {
-    var c = cur.cam, t = Math.tan(15 * Math.PI / 180), dist = Math.max(c.hw / (t * camera.aspect), c.hh / t);
+    var c = camNow, t = Math.tan(15 * Math.PI / 180), dist = Math.max(c.hw / (t * camera.aspect), c.hh / t);
     camera.position.set(c.cx + dist * Math.sin(az) * Math.cos(el), c.cy + dist * Math.sin(el), dist * Math.cos(az) * Math.cos(el));
     camera.lookAt(c.cx, c.cy, 0);
     camera.updateMatrixWorld();
@@ -1059,7 +1222,7 @@
     ORDER.forEach(function (id) {
       cur = inst(id);
       scene.add(cur.m.root);
-      az = cur.cam.az; el = cur.cam.el;
+      az = cur.cam.az; el = cur.cam.el; copyCam(cur.cam);
       setCut(0); // tiles show the machine whole, from the outside
       cur.m.draw();
       setView(640, 400, 1);
@@ -1109,8 +1272,15 @@
     stepBtns.forEach(function (b, i) { b.setAttribute('aria-pressed', String(i === n)); });
     stepText.textContent = cur.steps[n][1];
     stage.classList.toggle('focus', n > 0);
+    // a step can look closer at one place, show its own set of name tags, and tell the machine what to do
+    var opts = cur.steps[n][2] || {};
+    stepCam = opts.cam || null; stepKey = opts.key || null;
+    if (cur.m.setMode) cur.m.setMode(opts.mode || null);
     tags.forEach(function (t) {
+      var vis = (t.key || null) === stepKey;
+      t.el.hidden = !vis;
       if (!t.ln) return;
+      t.ln.style.display = t.dot.style.display = vis ? '' : 'none';
       var on = n > 0 && t.step === n;
       t.el.classList.toggle('on', on);
       t.el.setAttribute('aria-pressed', 'false');
@@ -1160,7 +1330,7 @@
       var ln = document.createElementNS(SVGNS, 'line'), dot = document.createElementNS(SVGNS, 'circle');
       dot.setAttribute('r', 3.5);
       leads.appendChild(ln); leads.appendChild(dot);
-      var t = { el: b, ln: ln, dot: dot, step: d[3], note: d[4],
+      var t = { el: b, ln: ln, dot: dot, step: d[3], note: d[4], key: d[5] || null,
                 P: new THREE.Vector3(d[1][0], d[1][1], d[1][2] || 0), Q: new THREE.Vector3(d[2][0], d[2][1], 0) };
       if (cur.m.tagP) cur.m.tagP[d[0]] = t.P;
       b.addEventListener('click', function () {
@@ -1173,7 +1343,7 @@
       var s = document.createElement('span');
       s.className = 'tag' + (d[3] ? ' warn' : ''); s.innerHTML = d[0];
       stage.appendChild(s);
-      tags.push({ el: s, Q: new THREE.Vector3(d[1], d[2], 0) });
+      tags.push({ el: s, Q: new THREE.Vector3(d[1], d[2], 0), key: d[4] || null });
     });
 
     // step buttons
@@ -1187,7 +1357,7 @@
     });
     setStep(0);
 
-    az = cur.cam.az; el = cur.cam.el;
+    az = cur.cam.az; el = cur.cam.el; copyCam(cur.cam); lastCap = '';
     fuel.value = 50; setFuel();
     if (still) { cut.value = 100; setCut(100); }
     else { intro = true; t0 = 0; cut.value = 0; setCut(0); }
@@ -1247,6 +1417,12 @@
       if (boilT > 0.17) { boilT = 0; seed = seed % 4 + 1; post.uniforms.seed.value = seed; turb.setAttribute('seed', seed); }
     }
     cur.m.draw();
+    // glide the view toward wherever this step, or the machine itself, wants us to look
+    var tc = stepCam || cur.m.view || cur.cam, kk = 1 - Math.exp(-4 * dt);
+    camNow.cx += (tc.cx - camNow.cx) * kk; camNow.cy += (tc.cy - camNow.cy) * kk;
+    camNow.hw += (tc.hw - camNow.hw) * kk; camNow.hh += (tc.hh - camNow.hh) * kk;
+    var cap = cur.m.caption || cur.corner;
+    if (cap !== lastCap) { lastCap = cap; $('corner').innerHTML = cap; }
     placeCamera();
     placeTags();
     drawFrame();
