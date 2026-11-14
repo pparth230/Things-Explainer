@@ -415,7 +415,15 @@
     };
   }
   // a straight round stick between two points, and a bent pipe through several points
-  var UPV = new THREE.Vector3(0, 1, 0);
+  var UPV = new THREE.Vector3(0, 1, 0), LNK = new THREE.Vector3();
+  // stretch a one-long round stick so that it runs from a to b (for arms whose ends move)
+  function setLink(me, a, b) {
+    LNK.subVectors(b, a);
+    var len = LNK.length();
+    me.position.copy(a).add(b).multiplyScalar(0.5);
+    me.quaternion.setFromUnitVectors(UPV, LNK.normalize());
+    me.scale.y = len;
+  }
   function tubeBetween(parent, a, b, r, m) {
     var d = new THREE.Vector3().subVectors(b, a), len = d.length();
     var me = addWhole(parent, new THREE.CylinderGeometry(r, r, len, 12), m || mat.metal);
@@ -701,65 +709,211 @@
   }
 
   // =====================================================================
-  // machine 2: hot water pusher (steam engine)
+  // machine 2: hot water pusher (steam engine) with its real water room and all the small parts
   // =====================================================================
   function buildSteam() {
     var root = new THREE.Group();
     var WX = 420, R = 62, ROD = 230, PR = 190, VA = 16, th = 0.9;
-
-    function shape(pts, Ctor) {
-      var s = new (Ctor || THREE.Shape)();
-      pts.forEach(function (p, i) { if (i) s.lineTo(p[0], p[1]); else s.moveTo(p[0], p[1]); });
-      s.lineTo(pts[0][0], pts[0][1]);
-      return s;
-    }
-    function ext(sh, depth, z0) {
-      var g = new THREE.ExtrudeGeometry(sh, { depth: depth, bevelEnabled: false });
-      g.translate(0, 0, z0);
+    function V(x, y, z) { return new THREE.Vector3(x, y, z || 0); }
+    function cbox(x0, x1, y0, y1, z0, z1, m) {
+      var g = addCut(root, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      g.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       return g;
     }
-    function rodX(r, len) { var g = new THREE.CylinderGeometry(r, r, len, 16); g.rotateZ(Math.PI / 2); return g; }
-    function discZ(r, t) { var g = new THREE.CylinderGeometry(r, r, t, 40); g.rotateX(Math.PI / 2); return g; }
-    function box(parent, x0, x1, y0, y1, z0, z1, m) {
+    function wbox(parent, x0, x1, y0, y1, z0, z1, m) {
       var b = addWhole(parent, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
       b.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       return b;
     }
+    function rodX(r, len) { var g = new THREE.CylinderGeometry(r, r, len, 16); g.rotateZ(Math.PI / 2); return g; }
+    function discZ(r, t) { var g = new THREE.CylinderGeometry(r, r, t, 40); g.rotateX(Math.PI / 2); return g; }
+    function LX(pts, seg, p0, pl) { return new THREE.LatheGeometry(prof(pts, 0, true), seg || 48, p0 || 0, pl || Math.PI * 2); }
+    function axisX(x, y, z) { var g = new THREE.Group(); g.position.set(x, y, z || 0); g.rotation.z = -Math.PI / 2; root.add(g); return g; }
+    function torusX(x, rr, t) { var g = new THREE.TorusGeometry(rr, t, 8, 40); g.rotateX(Math.PI / 2); g.translate(0, x, 0); return g; }
 
-    // ground and stands
-    box(root, -500, 610, -196, -180, -120, 90, mat.body);
-    box(root, -95, 95, -180, -65, -50, 50, mat.body);
-    box(root, 395, 445, -180, 14, -54, -42, mat.body);
+    // ---------------- ground, beds and stands ----------------
+    wbox(root, -520, 640, -196, -180, -140, 110, mat.body);
+    wbox(root, -110, 470, -180, -150, -60, 60, mat.body);
+    wbox(root, -90, 90, -150, -60, -46, 46, mat.body);
+    wbox(root, 262, 276, -150, -30, -16, 16, mat.body);
+    [-48, -104].forEach(function (z) {
+      wbox(root, 395, 445, -150, 16, z - 6, z + 6, mat.body);                 // holders for the wheel's stick
+      tubeBetween(root, V(WX, 16, z), V(WX, 30, z), 4);                       // cups of slide stuff on top
+    });
 
-    // push room with the door room on top, drawn as its cut shape and pushed back into the page
-    var outline = [[-105,-65],[105,-65],[105,88],[85,88],[85,150],[-85,150],[-85,88],[-105,88]];
-    var hollow = [[-90,-50],[90,-50],[90,72],[38,72],[38,85],[70,85],[70,135],[-70,135],[-70,85],[-38,85],[-38,72],[-90,72]];
-    var island = [[-78,50],[78,50],[78,60],[26,60],[26,85],[10,85],[10,62],[-10,62],[-10,85],[-26,85],[-26,60],[-78,60]];
-    var blockShape = shape(outline);
-    blockShape.holes.push(shape(hollow, THREE.Path));
-    addCut(root, ext(blockShape, 110, -55));
-    addCut(root, ext(shape(island), 110, -55));
-    addCut(root, ext(shape(outline), 8, 55));
-    addCut(root, ext(shape(outline), 8, -63));
+    // ---------------- water room: stone walls, fire under it, hot air back through pipes ----------------
+    cbox(-476, -200, -180, -168, -100, 100);
+    cbox(-470, -455, -168, -40, -100, 100);
+    cbox(-215, -200, -168, 165, -100, 100);
+    cbox(-232, -215, 150, 165, -100, 100);
+    cbox(-232, -215, 60, 150, -100, -92);
+    cbox(-232, -215, 60, 150, 92, 100);
+    cbox(-455, -215, -168, 60, -100, -92);
+    cbox(-455, -215, -168, 60, 92, 100);
+    cbox(-345, -330, -168, -70, -92, 92);                                     // wall that turns the fire upward
+    cbox(-455, -345, -112, -107, -92, 92, mat.metalC);                        // fire bars
+    wbox(root, -476, -470, -100, -52, -30, 30, mat.metal);                    // fire door
+    wbox(root, -476, -470, -160, -122, -30, 30, mat.metal);                   // ash door
+    tubeBetween(root, V(-480, -76, 18), V(-480, -76, 30), 2);
+    // smoke box on the front, and the smoke pipe with its turning door
+    cbox(-478, -474, -40, 64, -72, 72);
+    cbox(-474, -450, 60, 64, -72, 72);
+    cbox(-474, -450, -40, -36, -72, 72);
+    cbox(-474, -450, -36, 60, -72, -68);
+    cbox(-474, -450, -36, 60, 68, 72);
+    addCut(root, LX([[64,14],[64,18],[300,18],[300,14]], 28)).position.x = -462;
+    var damper = addWhole(root, new THREE.CylinderGeometry(12.5, 12.5, 2, 20), mat.metal);
+    damper.position.set(-462, 180, 0); damper.rotation.z = 0.5;
+    tubeBetween(root, V(-462, 180, 0), V(-462, 180, 34), 1.5);
+
+    // the round water box itself, half full, with fire pipes running through the water
+    var drum = axisX(-340, 60);
+    addCut(drum, LX(chaikin([[-110,0],[-110,95],[110,95],[110,0],[104,0],[104,87],[-104,87],[-104,0]]), 64));
+    var waterPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 88), wClips = [cutPlane, waterPlane];
+    var waterM = new THREE.MeshLambertMaterial({ clippingPlanes: wClips });
+    var waterCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: wClips });
+    var nWater = new THREE.MeshNormalMaterial({ clippingPlanes: wClips });
+    var nWaterCap = new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.BackSide, clippingPlanes: wClips });
+    var glassM = new THREE.MeshLambertMaterial();
+    function waterTheme() { waterM.color.set(cssVar('--water')); waterCap.color.set(cssVar('--water')); glassM.color.set(cssVar('--water')); }
+    themeFns.push(waterTheme); waterTheme();
+    var wGeo = LX([[-103,0],[-103,85.5],[103,85.5],[103,0]], 64);
+    var w1 = new THREE.Mesh(wGeo, waterM); w1.userData.n = nWater; drum.add(w1);
+    var w2 = new THREE.Mesh(wGeo, waterCap); w2.userData.n = nWaterCap; drum.add(w2);
+    [[-38,-48],[-38,-24],[-38,0],[-38,24],[-38,48],[-62,-36],[-62,-12],[-62,12],[-62,36]].forEach(function (p) {
+      addCut(axisX(-340, 60 + p[0], p[1]), LX([[-113,7],[113,7],[113,5],[-113,5]], 14), mat.metalC);
+    });
+    // things on top: the top hat where dry water air gathers, the small door with its heavy arm, the push clock
+    addCut(root, LX([[146,26],[184,26],[190,18],[190,0],[186,0],[186,16],[182,22],[146,22]], 32)).position.x = -340;
+    tubeBetween(root, V(-270, 153), V(-270, 172), 7);
+    tubeBetween(root, V(-288, 153), V(-288, 178), 2.5);
+    var lever = new THREE.Group();
+    lever.position.set(-288, 178, 0);
+    wbox(lever, 0, 74, -2, 2, -3, 3, mat.metal);
+    wbox(lever, 58, 72, -16, -2, -7, 7, mat.body);
+    root.add(lever);
+    tubeBetween(root, V(-395, 153), V(-395, 180), 2.5);
+    addWhole(root, discZ(13, 4), mat.body).position.set(-395, 192, 0);
+    var needle = new THREE.Group();
+    needle.position.set(-395, 192, 3);
+    wbox(needle, 0, 11, -0.8, 0.8, -0.6, 0.6, mat.metal);
+    root.add(needle);
+    // water glass on the front, above the smoke box
+    tubeBetween(root, V(-458, 66, -40), V(-458, 110, -40), 3, mat.body);
+    addWhole(root, new THREE.CylinderGeometry(3.4, 3.4, 22, 10), glassM).position.set(-458, 77, -40);
+    tubeBetween(root, V(-458, 68, -40), V(-448, 68, -40), 2);
+    tubeBetween(root, V(-458, 108, -40), V(-448, 108, -40), 2);
+    // fire
+    var cone = new THREE.ConeGeometry(14, 1, 10); cone.translate(0, 0.5, 0);
+    var fires = [];
+    for (var c = 0; c < 4; c++) {
+      var f1 = new THREE.Mesh(cone, mat.flame), f2 = new THREE.Mesh(cone, mat.flame2);
+      f1.position.set(-438 + c * 28, -107, -25); f2.position.set(-438 + c * 28, -107, -25);
+      f2.scale.x = f2.scale.z = 0.55;
+      root.add(f1); root.add(f2);
+      fires.push([f1, f2]);
+    }
+    function flicker() {
+      fires.forEach(function (p) {
+        var h = (26 + 26 * S.f) * rnd(0.75, 1.15);
+        p[0].scale.y = h; p[1].scale.y = h * rnd(0.45, 0.65);
+      });
+    }
+    flicker();
+
+    // ---------------- water air pipe with the hand wheel, and the speed keeper ----------------
+    var curve = new THREE.CatmullRomCurve3([[-340,188],[-340,205],[-325,218],[-15,218],[0,205],[0,146]].map(function (p) { return new THREE.Vector3(p[0], p[1], 0); }), false, 'catmullrom', 0.15);
+    addCut(root, new THREE.TubeGeometry(curve, 80, 11, 14, false));
+    var boreM = new THREE.MeshLambertMaterial({ side: THREE.BackSide, clippingPlanes: clips });
+    var nBore = new THREE.MeshNormalMaterial({ side: THREE.BackSide, clippingPlanes: clips });
+    function boreTheme() { boreM.color.set(cssVar('--fill')); }
+    themeFns.push(boreTheme); boreTheme();
+    var bore = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 7, 12, false), boreM);
+    bore.userData.n = nBore; root.add(bore);
+    var cs = curve.getSpacedPoints(100);
+    wbox(root, -14, 14, 172, 198, -22, -11, mat.metal);                        // body of the hand door, behind the pipe
+    tubeBetween(root, V(0, 185, 11), V(0, 185, 26), 2);
+    var handWheel = addWhole(root, new THREE.TorusGeometry(11, 1.8, 8, 24), mat.metal);
+    handWheel.position.set(0, 185, 26);
+    var GZ = -122;
+    tubeBetween(root, V(70, -180, GZ), V(70, 160, GZ), 5, mat.body);           // stand
+    addWhole(root, discZ(14, 8), mat.metal).position.set(70, 165, GZ);         // small belt wheel
+    addWhole(root, discZ(26, 8), mat.metal).position.set(WX, 0, GZ);           // belt wheel on the big stick
+    tubeBetween(root, V(70, 179, GZ), V(WX, 26, GZ), 1.4, mat.body);           // belt
+    tubeBetween(root, V(70, 151, GZ), V(WX, -26, GZ), 1.4, mat.body);
+    tubeBetween(root, V(70, 165, GZ), V(70, 262, GZ), 2.5);
+    var gov = new THREE.Group(), govArms = [];
+    gov.position.set(70, 260, GZ);
+    [-1, 1].forEach(function (s) {
+      var a = new THREE.Group();
+      addWhole(a, new THREE.CylinderGeometry(1.6, 1.6, 46, 8), mat.metal).position.y = -23;
+      addWhole(a, new THREE.SphereGeometry(9, 14, 10), mat.body).position.y = -46;
+      gov.add(a); govArms.push([a, s]);
+    });
+    root.add(gov);
+    var sleeve = addWhole(root, new THREE.CylinderGeometry(6, 6, 8, 12), mat.metal);
+    var govLink = addWhole(root, new THREE.CylinderGeometry(1.5, 1.5, 1, 8), mat.metal);
+
+    // ---------------- push room: round, with end covers, and the door room on top ----------------
+    var cyl = axisX(0, 0);
+    addCut(cyl, LX([[-76,58],[76,58],[76,50],[-76,50]], 48));
+    [[-90, -76], [76, 90]].forEach(function (e) {                              // short end pieces, open at the top so water air can get in
+      addCut(cyl, LX([[e[0],58],[e[1],58],[e[1],50],[e[0],50]], 40, Math.PI * 1.5 + 0.35, Math.PI * 2 - 0.7));
+    });
+    addCut(cyl, LX([[-102,0],[-102,66],[-90,66],[-90,0]], 48));
+    addCut(cyl, LX([[90,9],[90,66],[102,66],[102,20],[118,20],[118,9]], 48));
+    [-45, 0, 45].forEach(function (x) { addCut(cyl, torusX(x, 59.5, 1.5), mat.metalC); });
+    bladeRing(cyl, UNIT, [{ y: -104, hub: 57, tip: 63, w: 5, th: 5, n: 10 }, { y: 104, hub: 57, tip: 63, w: 5, th: 5, n: 10 }], false, mat.metal);
+    [-82, 82].forEach(function (x) { tubeBetween(root, V(x, -56), V(x, -74), 3); });   // drip taps
+    // door room, in pieces: tops of the two air paths, the middle with the out hole, walls, roof, back and front
+    cbox(-100, -38, 72, 85, -45, 45); cbox(38, 100, 72, 85, -45, 45);
+    cbox(-26, -10, 58, 85, -45, 45); cbox(10, 26, 58, 85, -45, 45); cbox(-10, 10, 58, 62, -45, 45);
+    cbox(-85, -70, 85, 150, -45, 45); cbox(70, 85, 85, 150, -45, 45); cbox(-85, 85, 135, 150, -45, 45);
+    cbox(-100, 100, 58, 150, -50, -45); cbox(-100, 100, 58, 150, 45, 50);
+    addWhole(root, new THREE.CylinderGeometry(10, 10, 210, 16), mat.metal).position.set(0, 165, -85);   // out pipe
+    tubeBetween(root, V(0, 72, -50), V(0, 72, -85), 8);
 
     // sliding door (cut, so you can see the space under it) with its stick
+    function shape(pts) {
+      var s = new THREE.Shape();
+      pts.forEach(function (p, i) { if (i) s.lineTo(p[0], p[1]); else s.moveTo(p[0], p[1]); });
+      s.lineTo(pts[0][0], pts[0][1]);
+      return s;
+    }
     var valve = new THREE.Group();
     valve.position.y = 85;
     root.add(valve);
-    addCut(valve, ext(shape([[-40,0],[-24,0],[-24,13],[24,13],[24,0],[40,0],[40,24],[-40,24]]), 90, -45), mat.metalC);
-    var vrod = addWhole(valve, rodX(4, 130), mat.metal);
-    vrod.position.set(105, 12, 0);
-    var vpin = addWhole(valve, discZ(5, 34), mat.metal);
-    vpin.position.set(170, 12, -15);
+    var vGeo = new THREE.ExtrudeGeometry(shape([[-40,0],[-24,0],[-24,13],[24,13],[24,0],[40,0],[40,24],[-40,24]]), { depth: 80, bevelEnabled: false });
+    vGeo.translate(0, 0, -40);
+    addCut(valve, vGeo, mat.metalC);
+    addWhole(valve, rodX(4, 130), mat.metal).position.set(105, 12, 0);
+    addWhole(valve, discZ(5, 34), mat.metal).position.set(170, 12, -15);
 
-    // pushing block, its stick, the sliding end, and the arm
-    var piston = addWhole(root, new THREE.BoxGeometry(30, 98, 108), mat.metal);
+    // pushing block with its tight rings, its stick, the sliding end, the arm, the water pusher
+    var piston = new THREE.Group();
+    piston.rotation.z = -Math.PI / 2;
+    root.add(piston);
+    addWhole(piston, new THREE.LatheGeometry(prof([[-13,0],[-13,49],[13,49],[13,0]], 0, false), 40), mat.body);
+    [-6, 6].forEach(function (x) { addWhole(piston, torusX(x, 49.2, 1.1), mat.metal); });
     var prod = addWhole(root, rodX(5.5, PR), mat.metal);
-    var cross = addWhole(root, new THREE.BoxGeometry(34, 44, 26), mat.metal);
-    box(root, 112, 272, 24, 30, -15, 15, mat.body);
-    box(root, 112, 272, -30, -24, -15, 15, mat.body);
-    var conrod = addWhole(root, new THREE.BoxGeometry(ROD, 14, 8), mat.metal);
+    var cross = new THREE.Group();
+    root.add(cross);
+    wbox(cross, -17, 17, -22, 22, -13, 13, mat.metal);
+    tubeBetween(cross, V(0, 0, -13), V(0, -62, -70), 3);
+    addWhole(cross, rodX(3.5, 130), mat.metal).position.set(-65, -62, -70);
+    wbox(root, 112, 272, 24, 30, -15, 15, mat.body);
+    wbox(root, 112, 272, -30, -24, -15, 15, mat.body);
+    [150, 230].forEach(function (x) { tubeBetween(root, V(x, 30, 0), V(x, 40, 0), 3); });
+    addWhole(root, rodX(9, 200), mat.body).position.set(90, -62, -70);         // water pusher body
+    wbox(root, 100, 190, -180, -110, -128, -92, mat.body);                     // water box
+    tubeBetween(root, V(150, -110, -110), V(150, -62, -78), 3);
+    pipeThrough(root, [V(-10,-62,-70), V(-60,-100,-110), V(-120,-170,-118), V(-238,-170,-118), V(-246,-60,-114), V(-250,25,-104), V(-256,40,-90)], 3.5);
+    var conrod = new THREE.Group();
     conrod.position.z = 4;
+    root.add(conrod);
+    wbox(conrod, -ROD / 2 + 8, ROD / 2 - 8, -5, 5, -4, 4, mat.metal);
+    addWhole(conrod, discZ(11, 10), mat.metal).position.x = -ROD / 2;
+    addWhole(conrod, discZ(13, 10), mat.metal).position.x = ROD / 2;
     var eccRod = addWhole(root, new THREE.BoxGeometry(250, 9, 6), mat.metal);
     eccRod.position.z = -30;
 
@@ -771,92 +925,48 @@
     rim.rotateX(Math.PI / 2);
     addWhole(wheel, rim, mat.metal).position.z = -75;
     for (var s = 0; s < 6; s++) {
-      var spoke = addWhole(wheel, new THREE.BoxGeometry(130, 14, 10), mat.metal);
-      var a = s * Math.PI / 3;
+      var spoke = addWhole(wheel, new THREE.BoxGeometry(130, 14, 10), mat.metal), a = s * Math.PI / 3;
       spoke.position.set(75 * Math.cos(a), 75 * Math.sin(a), -75);
       spoke.rotation.z = a;
     }
     addWhole(wheel, discZ(24, 30), mat.metal).position.z = -75;
-    addWhole(wheel, discZ(11, 104), mat.body).position.z = -60;       // the wheel's own stick
-    addWhole(wheel, discZ(78, 12), mat.body).position.z = -14;        // plate that holds the arm
-    addWhole(wheel, discZ(7, 22), mat.metal).position.set(R, 0, 2);   // where the arm joins on
-    addWhole(wheel, discZ(30, 10), mat.metal).position.set(0, VA, -30); // off-middle plate that moves the door arm
+    addWhole(wheel, discZ(11, 124), mat.body).position.z = -70;
+    addWhole(wheel, discZ(78, 12), mat.body).position.z = -14;
+    addWhole(wheel, discZ(7, 22), mat.metal).position.set(R, 0, 2);
+    addWhole(wheel, discZ(30, 10), mat.metal).position.set(0, VA, -30);
 
-    // water room: a strong round box lying on its side
-    var drum = new THREE.Group();
-    drum.position.set(-330, 60, 0);
-    drum.rotation.z = -Math.PI / 2;
-    root.add(drum);
-    addCut(drum, new THREE.LatheGeometry(prof(chaikin([[-120,0],[-120,95],[120,95],[120,0],[112,0],[112,87],[-112,87],[-112,0]]), 0, true), 64));
-    var waterPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 75);
-    var wClips = [cutPlane, waterPlane];
-    var waterM = new THREE.MeshLambertMaterial({ clippingPlanes: wClips });
-    var waterCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: wClips });
-    var nWater = new THREE.MeshNormalMaterial({ clippingPlanes: wClips });
-    var nWaterCap = new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.BackSide, clippingPlanes: wClips });
-    function waterTheme() { waterM.color.set(cssVar('--water')); waterCap.color.set(cssVar('--water')); }
-    themeFns.push(waterTheme); waterTheme();
-    var wGeo = new THREE.LatheGeometry(prof([[-111,0],[-111,86],[111,86],[111,0]], 0, true), 64);
-    var w1 = new THREE.Mesh(wGeo, waterM); w1.userData.n = nWater; drum.add(w1);
-    var w2 = new THREE.Mesh(wGeo, waterCap); w2.userData.n = nWaterCap; drum.add(w2);
-
-    // fire box under it, with flames
-    var fb = [[-445,-180],[-215,-180],[-215,-30],[-445,-30]];
-    var fbShape = shape(fb);
-    fbShape.holes.push(shape([[-430,-168],[-230,-168],[-230,-42],[-430,-42]], THREE.Path));
-    addCut(root, ext(fbShape, 140, -70));
-    addCut(root, ext(shape(fb), 8, 70));
-    addCut(root, ext(shape(fb), 8, -78));
-    var cone = new THREE.ConeGeometry(15, 1, 10); cone.translate(0, 0.5, 0);
-    var fires = [];
-    for (var c = 0; c < 5; c++) {
-      var f1 = new THREE.Mesh(cone, mat.flame), f2 = new THREE.Mesh(cone, mat.flame2);
-      f1.position.set(-410 + c * 40, -167, -25); f2.position.set(-410 + c * 40, -167, -25);
-      f2.scale.x = f2.scale.z = 0.55;
-      root.add(f1); root.add(f2);
-      fires.push([f1, f2]);
+    // ---------------- little moving lines ----------------
+    var GAS = [[-430,-98],[-350,-62],[-240,-58],[-222,-25],[-224,20],[-300,22],[-452,22],[-462,36],[-462,64],[-462,300]], gLen = [0];
+    for (var gi = 1; gi < GAS.length; gi++) gLen.push(gLen[gi - 1] + Math.sqrt(Math.pow(GAS[gi][0] - GAS[gi - 1][0], 2) + Math.pow(GAS[gi][1] - GAS[gi - 1][1], 2)));
+    var gTot = gLen[GAS.length - 1];
+    function gasAt(d, out) {
+      d = clamp(d, 0, gTot);
+      for (var i = 1; i < GAS.length; i++) if (d <= gLen[i]) {
+        var t = (d - gLen[i - 1]) / (gLen[i] - gLen[i - 1]);
+        out[0] = GAS[i - 1][0] + (GAS[i][0] - GAS[i - 1][0]) * t; out[1] = GAS[i - 1][1] + (GAS[i][1] - GAS[i - 1][1]) * t;
+        return;
+      }
     }
-    function flicker() {
-      fires.forEach(function (p) {
-        var h = (40 + 38 * S.f) * rnd(0.75, 1.15);
-        p[0].scale.y = h; p[1].scale.y = h * rnd(0.45, 0.65);
-      });
-    }
-    flicker();
-
-    // smoke pipe
-    var chim = new THREE.LatheGeometry([[13,-180],[19,-180],[19,270],[13,270],[13,-180]].map(function (p) { return new THREE.Vector2(p[0], p[1]); }), 28);
-    addCut(root, chim).position.x = -466;
-
-    // water air pipe from the top of the water room to the door room, and the out pipe behind
-    var curve = new THREE.CatmullRomCurve3([[-330,148],[-330,190],[-315,205],[-15,205],[0,190],[0,146]].map(function (p) { return new THREE.Vector3(p[0], p[1], 0); }), false, 'catmullrom', 0.15);
-    addCut(root, new THREE.TubeGeometry(curve, 80, 11, 14, false));
-    var boreM = new THREE.MeshLambertMaterial({ side: THREE.BackSide, clippingPlanes: clips });
-    var nBore = new THREE.MeshNormalMaterial({ side: THREE.BackSide, clippingPlanes: clips });
-    function boreTheme() { boreM.color.set(cssVar('--fill')); }
-    themeFns.push(boreTheme); boreTheme();
-    var bore = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 7, 12, false), boreM);
-    bore.userData.n = nBore; root.add(bore);
-    var cs = curve.getSpacedPoints(100);
-    addWhole(root, new THREE.CylinderGeometry(10, 10, 200, 16), mat.metal).position.set(0, 160, -85);
-
-    // ---- little moving lines: bubbles, water air, puffs, smoke ----
     var dots = [];
     function make(kind, n, init) { for (var i = 0; i < n; i++) { var d = { k: kind, jx: 0, jy: 0 }; init(d); dots.push(d); } }
-    function newBub(d, any) { d.x = rnd(-425, -235); d.z = rnd(-40, -3); d.y = any ? rnd(-18, 70) : -18; d.v = rnd(25, 45); }
-    function newBs(d) { d.x = rnd(-425, -235); d.y = rnd(82, 138); d.z = rnd(-28, -3); }
-    function newSmoke(d, any) { d.x = -466 + rnd(-8, 8); d.y = 272 + (any ? rnd(0, 80) : 0); d.z = rnd(-6, 6); d.max = rnd(1.5, 3); d.life = any ? rnd(0, d.max) : d.max; d.vx = rnd(-10, 4); }
+    function newBub(d, any) { d.x = rnd(-436, -246); d.z = rnd(-40, -3); d.y = any ? rnd(-22, 84) : -22; d.v = rnd(25, 45); }
+    function newBs(d) { d.x = rnd(-436, -246); d.y = rnd(94, 140); d.z = rnd(-28, -3); }
+    function newSmoke(d, any) { d.x = -462 + rnd(-8, 8); d.y = 302 + (any ? rnd(0, 80) : 0); d.z = rnd(-6, 6); d.max = rnd(1.5, 3); d.life = any ? rnd(0, d.max) : d.max; d.vx = rnd(-10, 4); }
     make('bub', 34, function (d) { newBub(d, true); });
     make('bs', 30, newBs);
     make('pipe', 24, function (d) { d.s = Math.random(); d.j = rnd(0.8, 1.2); d.z = rnd(-5, -1); });
-    make('chest', 22, function (d) { d.x = rnd(-66, 66); d.y = rnd(113, 132); d.z = rnd(-40, -3); });
+    make('chest', 22, function (d) { d.x = rnd(-66, 66); d.y = rnd(113, 132); d.z = rnd(-36, -3); });
     make('cl', 38, function (d) { d.u = Math.random(); d.v = Math.random(); d.w = Math.random(); });
     make('cr', 38, function (d) { d.u = Math.random(); d.v = Math.random(); d.w = Math.random(); });
     make('puff', 40, function (d) { d.life = 0; d.max = 1; d.x = 0; d.y = 0; d.z = 0; d.vx = 0; d.vy = 0; });
     make('smoke', 22, function (d) { newSmoke(d, true); });
+    make('gas', 44, function (d) { d.d = rnd(0, gTot); d.o = rnd(-5, 5); d.j = rnd(0.8, 1.2); });
+    make('drip', 6, function (d) { d.side = dots.length % 2 ? 1 : -1; d.y = rnd(-150, -76); });
+    make('blow', 12, function (d) { d.life = 0; d.max = 1; d.x = 0; d.y = 0; d.vx = 0; d.vy = 0; });
     var L = lineSet(root, dots.length, mat.dots);
 
-    var tagP = {}, xp = 0, xc = 0, xv = 0, pinX = 0, pinY = 0, lastSign = 1, jitT = 0, flameT = 0;
+    var tagP = {}, xp = 0, xc = 0, xv = 0, pinX = 0, pinY = 0, lastSign = 1, jitT = 0, flameT = 0, govA = 0, gp = [0, 0];
+    var A1 = new THREE.Vector3(), A2 = new THREE.Vector3();
     function pose() {
       pinX = R * Math.cos(th); pinY = R * Math.sin(th);
       xc = WX + pinX - Math.sqrt(ROD * ROD - pinY * pinY);
@@ -873,35 +983,53 @@
       eccRod.rotation.z = Math.atan2(ey - ay, ex - ax);
       eccRod.scale.x = Math.sqrt((ex - ax) * (ex - ax) + (ey - ay) * (ey - ay)) / 250;
       wheel.rotation.z = th;
+      // speed keeper: the faster it turns, the farther the balls fly out, and the more they close the hand door
+      var open = 0.35 + 0.45 * (S.f - 0.4) / 1.3, sy = 260 - 46 * Math.cos(open) - 10;
+      govArms.forEach(function (g) { g[0].rotation.z = g[1] * open; });
+      gov.rotation.y = govA;
+      sleeve.position.set(70, sy, GZ);
+      setLink(govLink, A1.set(70, sy, GZ), A2.set(0, 190, -22));
+      needle.rotation.z = 2.4 - 1.5 * (S.f - 0.4) / 1.3;
+      lever.rotation.z = S.f > 1.45 ? 0.1 + 0.03 * Math.sin(th * 9) : 0;
       if (tagP['Pushing block']) tagP['Pushing block'].set(xp, 0, 0);
+      if (tagP['Tight rings']) tagP['Tight rings'].set(xp, -49, 0);
       if (tagP['Arm']) tagP['Arm'].set(conrod.position.x, conrod.position.y, 4);
       if (tagP['Door arm']) tagP['Door arm'].set(eccRod.position.x, eccRod.position.y, -30);
       if (tagP['Sliding door']) tagP['Sliding door'].set(xv, 100, 0);
+      if (tagP['Sliding end']) tagP['Sliding end'].set(xc, 0, 13);
+      if (tagP['Flying balls']) tagP['Flying balls'].set(70 + 46 * Math.sin(open) * Math.cos(govA), 260 - 46 * Math.cos(open), GZ);
     }
     pose();
 
     return {
       root: root, tagP: tagP,
       update: function (dt) {
-        var f = S.f;
+        var f = S.f, i, d;
         th += 1.6 * f * dt;
+        govA += 5 * f * dt;
         pose();
-        var sign = xv >= 0 ? 1 : -1, puffNow = sign !== lastSign ? 10 : 0;
+        var sign = xv >= 0 ? 1 : -1, puffNow = sign !== lastSign ? 10 : 0, blowing = f > 1.45;
         lastSign = sign;
         jitT += dt; flameT += dt;
         var jit = jitT > 0.1;
         if (jit) jitT = 0;
         if (flameT > 0.09) { flameT = 0; flicker(); }
-        for (var i = 0; i < dots.length; i++) {
-          var d = dots[i];
-          if (d.k === 'bub') { d.y += d.v * f * dt; if (d.y > 72) newBub(d, false); }
-          else if (d.k === 'bs') { d.x += (-330 - d.x) * 0.35 * f * dt; d.y += 7 * f * dt; if (d.y > 142) newBs(d); }
+        for (i = 0; i < dots.length; i++) {
+          d = dots[i];
+          if (d.k === 'bub') { d.y += d.v * f * dt; if (d.y > 85) newBub(d, false); }
+          else if (d.k === 'bs') { d.x += (-340 - d.x) * 0.35 * f * dt; d.y += 7 * f * dt; if (d.y > 146) newBs(d); }
           else if (d.k === 'pipe') { d.s += 0.3 * f * d.j * dt; if (d.s > 1) d.s -= 1; }
           else if (d.k === 'puff') {
             if (d.life > 0) { d.life -= dt; d.x += d.vx * dt; d.y += d.vy * dt; d.vy *= 0.985; }
-            else if (puffNow > 0) { puffNow--; d.max = d.life = rnd(1.0, 1.7); d.x = rnd(-6, 6); d.y = 262; d.z = -85 + rnd(-6, 6); d.vx = rnd(-22, 22); d.vy = rnd(45, 95); }
+            else if (puffNow > 0) { puffNow--; d.max = d.life = rnd(1.0, 1.7); d.x = rnd(-6, 6); d.y = 272; d.z = -85 + rnd(-6, 6); d.vx = rnd(-22, 22); d.vy = rnd(45, 95); }
           }
           else if (d.k === 'smoke') { d.life -= dt; d.y += 38 * dt; d.x += d.vx * dt; if (d.life <= 0) newSmoke(d, false); }
+          else if (d.k === 'gas') { d.d += 110 * f * d.j * dt; if (d.d > gTot) d.d = 0; }
+          else if (d.k === 'drip') { d.y -= 90 * dt; if (d.y < -150) d.y = -76 + rnd(0, 60); }
+          else if (d.k === 'blow') {
+            if (d.life > 0) { d.life -= dt; d.x += d.vx * dt; d.y += d.vy * dt; }
+            else if (blowing && Math.random() < 0.3) { d.max = d.life = rnd(0.5, 0.9); d.x = -270 + rnd(-4, 4); d.y = 176; d.vx = rnd(-30, 30); d.vy = rnd(70, 130); }
+          }
           if (jit) { d.jx = rnd(-1.6, 1.6); d.jy = rnd(-1.6, 1.6); }
         }
       },
@@ -917,13 +1045,19 @@
           }
           else if (d.k === 'chest') { L.put(i, d.x + d.jx, d.y + d.jy - 2, d.z, d.x + d.jx, d.y + d.jy + 2, d.z); L.paint(i, 1, 0.95); }
           else if (d.k === 'cl' || d.k === 'cr') {
-            var x0 = d.k === 'cl' ? -88 : xp + 17, x1 = d.k === 'cl' ? xp - 17 : 88;
+            var x0 = d.k === 'cl' ? -88 : xp + 16, x1 = d.k === 'cl' ? xp - 16 : 88;
             a = d.k === 'cl' ? live : 1 - live;
-            x = x0 + d.u * (x1 - x0) + d.jx; y = -45 + d.v * 90 + d.jy; z = -50 + d.w * 46;
+            x = x0 + d.u * (x1 - x0) + d.jx; y = -38 + d.v * 76 + d.jy; z = -42 + d.w * 38;
             L.put(i, x, y - 2, z, x, y + 2, z); L.paint(i, a, 0.3 + 0.65 * a);
           }
           else if (d.k === 'puff') { a = d.life > 0 ? d.life / d.max : 0; L.put(i, d.x, d.y - 5, d.z, d.x, d.y, d.z); L.paint(i, 0, a * 0.8); }
-          else { a = clamp(d.life / d.max, 0, 1); L.put(i, d.x, d.y - 5, d.z, d.x, d.y, d.z); L.paint(i, 0, a * 0.55); }
+          else if (d.k === 'smoke') { a = clamp(d.life / d.max, 0, 1); L.put(i, d.x, d.y - 5, d.z, d.x, d.y, d.z); L.paint(i, 0, a * 0.55); }
+          else if (d.k === 'gas') {          // hot air from the fire: under the water room, back through a fire pipe, up the smoke pipe
+            gasAt(d.d - 7, gp); x = gp[0]; y = gp[1]; gasAt(d.d, gp);
+            L.put(i, x, y + d.o, -3, gp[0], gp[1] + d.o, -3); L.paint(i, 1 - d.d / gTot, 0.9);
+          }
+          else if (d.k === 'drip') { x = d.side * 82; L.put(i, x, d.y + 4, 0, x, d.y, 0); L.tint(i, col.water, 0.9); }
+          else { a = d.life > 0 ? d.life / d.max : 0; L.put(i, d.x, d.y - 6, 0, d.x, d.y, 0); L.paint(i, 0.6, a * 0.9); }
         }
         L.flush();
       },
@@ -981,8 +1115,12 @@
     tube(s1, V3(34, -123), V3(34, -171), 6);                                  // fire water: can to its wheel
     tube(s1, V3(34, -203), V3(60, -222), 5);                                  // fire water: wheel, down the outside...
     tube(s1, V3(60, -222), V3(60, -338), 5);                                  // ...to the ring at the bottom of the bell
+    // the fire room, bell and ring hang from one joint so the whole thing can be pointed a little
+    var eg = new THREE.Group(), egi = new THREE.Group();
+    eg.position.set(0, -207, 0); egi.position.set(0, 207, 0);
+    eg.add(egi); s1.add(eg);
     var ringGeo = new THREE.TorusGeometry(57, 5, 10, 44); ringGeo.rotateX(Math.PI / 2);
-    addCut(s1, ringGeo).position.y = -340;
+    addCut(egi, ringGeo).position.y = -340;
 
     // three wheels on one stick: cold air wheel, middle wheel, fire water wheel
     var wheels = [-34, 0, 34].map(function (x) {
@@ -1014,9 +1152,24 @@
     tube(s1, V3(0, -187, -62), V3(0, -327, -62), 4);
 
     // fire room and bell in one piece, and the plate with holes at the top of the fire room
-    addCut(s1, lathe(chaikin([[-210,0],[-210,36],[-262,36],[-287,18],[-325,44],[-365,64],
+    addCut(egi, lathe(chaikin([[-210,0],[-210,36],[-262,36],[-287,18],[-325,44],[-365,64],
                               [-365,60],[-325,40],[-287,13],[-262,31],[-214,31],[-214,0]])));
-    addCut(s1, lathe([[-218,0],[-218,30.5],[-223,30.5],[-223,0]], 40), mat.metalC);
+    addCut(egi, lathe([[-218,0],[-218,30.5],[-223,30.5],[-223,0]], 40), mat.metalC);
+    // push frame that carries the push up into the tower, the pointing joint, and two pushers that swing the bell
+    [[52,52],[-52,52],[52,-52],[-52,-52]].forEach(function (q) { tube(s1, V3(q[0], -172, q[1]), V3(q[0] * 0.15, -203, q[1] * 0.15), 2.5); });
+    addWhole(s1, new THREE.SphereGeometry(7, 14, 10), mat.metal).position.set(0, -207, 0);
+    var actA = addWhole(s1, new THREE.CylinderGeometry(2.5, 2.5, 1, 8), mat.metal), actB = addWhole(s1, new THREE.CylinderGeometry(2.5, 2.5, 1, 8), mat.metal);
+    // splash stoppers inside the cans, strong balls of pressed air, a cover for pipes up the outside, push-apart sticks
+    [-95, -60, 30, 65].forEach(function (y) { addCut(s1, lathe([[y,68.5],[y,54],[y+2.5,54],[y+2.5,68.5]]), mat.metalC); });
+    [-56, 56].forEach(function (x) { addWhole(s1, new THREE.SphereGeometry(12, 16, 12), mat.body).position.set(x, -150, -22); });
+    var cover1 = addWhole(s1, new THREE.BoxGeometry(9, 335, 5), mat.body); cover1.position.set(-40, -2.5, -71.5); cover1.rotation.y = 0.52;
+    var cover2 = addWhole(s2, new THREE.BoxGeometry(9, 132, 5), mat.body); cover2.position.set(-40, 234, -71.5); cover2.rotation.y = 0.52;
+    [[66,0],[-66,0],[0,66],[0,-66]].forEach(function (q) { tube(s1, V3(q[0], 148, q[1]), V3(q[0], 167, q[1]), 3); });
+    // second part: thinking box, the holder under the thing it carries, little side jets, its own pushing wheel
+    addWhole(s2, new THREE.BoxGeometry(70, 7, 70), mat.body).position.y = 302.5;
+    addWhole(s2, new THREE.LatheGeometry(prof([[306,0],[306,40],[315,14],[315,0]], 0, false), 28), mat.body);
+    [[82,0],[-82,0],[0,82],[0,-82]].forEach(function (q) { addWhole(s2, new THREE.BoxGeometry(8, 6, 8), mat.metal).position.set(q[0], 285, q[1]); });
+    tube(s2, V3(8, 186), V3(24, 186), 7, mat.body);
 
     // little wings
     var fin = new THREE.Shape();
@@ -1034,8 +1187,8 @@
       return [a, b];
     }
     var ball1 = new THREE.Mesh(new THREE.SphereGeometry(22, 20, 14), mat.flame2);
-    ball1.position.y = -246; s1.add(ball1);
-    var tail1 = tails(s1, -363, 1);
+    ball1.position.y = -246; egi.add(ball1);
+    var tail1 = tails(egi, -363, 1);
 
     // ---------------- second part (the small top one) ----------------
     addCut(s2, lathe([[168,80],[300,80],[300,76],[168,76]]));
@@ -1054,6 +1207,7 @@
     var fairR = addCut(root, lathe(F, 40, 0, Math.PI)), fairL = addCut(root, lathe(F, 40, Math.PI, Math.PI));
     addWhole(cargo, new THREE.BoxGeometry(40, 40, 40), mat.metal).position.y = 335;
     [-39, 39].forEach(function (x) { addWhole(cargo, new THREE.BoxGeometry(36, 16, 2), mat.body).position.set(x, 335, 0); });
+    var dish = addWhole(cargo, new THREE.ConeGeometry(11, 8, 16), mat.body); dish.position.y = 361; dish.rotation.x = Math.PI;
 
     // ---------------- moving lines ----------------
     var N1 = 130, N2 = 60, NS = 40, NW = 20, NG = 10, N = N1 + N2 + NS + NW + NG, parts = [], L = lineSet(root, N, mat.dots);
@@ -1075,7 +1229,18 @@
     // ---------------- the flight, over and over ----------------
     var VIEW2 = { cx: 0, cy: 255, hw: 300, hh: 240 };
     var phase = 'burn1', T = 0, lv1 = 1, lv2 = 1, mode = null, apart = false, tApart = 0, backFrom = 0, flameT = 0, b1 = S.f, b2 = 0;
-    var tagP = {}, base = {}, MOVERS = ['First part', 'Cold air can', 'Fire water can', 'Empty ring', 'Little wings'];
+    var tagP = {}, base = {}, MOVERS = ['First part', 'Cold air can', 'Fire water can', 'Empty ring', 'Little wings', 'Splash stoppers', 'Pipe cover', 'Push-apart sticks'];
+    // pointing: the bell swings a little from side to side while it burns, and the fire lines swing with it
+    var gT = 0, gim = 0, cg = 1, sg = 0, g0 = [0, 0], g1 = [0, 0], PA = new THREE.Vector3(), PB = new THREE.Vector3();
+    function G(x, y, out) { var dy = y + 207; out[0] = x * cg - dy * sg; out[1] = -207 + x * sg + dy * cg; }
+    function point() {
+      cg = Math.cos(gim); sg = Math.sin(gim);
+      eg.rotation.z = gim;
+      G(38, -262, g0);
+      setLink(actA, PA.set(62, -176, 0), PB.set(g0[0], g0[1], 0));
+      G(0, -262, g0);
+      setLink(actB, PA.set(0, -176, -62), PB.set(g0[0], g0[1], -38));
+    }
     var CAPS = {
       burn1: 'First part is burning', refill: 'Filling it up again', cut1: 'First part is empty. Its fire stops',
       sep: 'Let go of the first part', burn2: 'Second part is burning', free: 'Empty. The thing it carries is on its own now',
@@ -1110,9 +1275,12 @@
       s = b1 > 0 ? rnd(0.8, 1.2) : 0.001; smallFire.scale.set(s, s, s);
       tail2[0].scale.y = b2 > 0 ? (0.35 + 0.3 * S.f) * rnd(0.9, 1.1) : 0.001;
       tail2[1].scale.y = b2 > 0 ? (0.35 + 0.3 * S.f) * rnd(0.8, 1.15) : 0.001;
+      // a fire that is off has to shrink in every direction, or its flat end still shows
+      tail1[0].scale.x = tail1[0].scale.z = tail1[1].scale.x = tail1[1].scale.z = b1 > 0 ? 1 : 0.001;
+      tail2[0].scale.x = tail2[0].scale.z = tail2[1].scale.x = tail2[1].scale.z = b2 > 0 ? 0.6 : 0.001;
       s = b2 > 0 ? rnd(0.9, 1.08) : 0.001; ball2.scale.set(s, s, s);
     }
-    place(); flicker();
+    place(); flicker(); point();
 
     api.setMode = function (m) {
       mode = m;
@@ -1153,6 +1321,9 @@
       api.caption = CAPS[phase];
       api.view = mode !== 'eng' && (phase === 'burn2' || phase === 'free' || (phase === 'sep' && T > 0.5)) ? VIEW2 : null;
       wheels.forEach(function (w, i) { w.rotation.y += 14 * b1 * dt; });
+      gT += dt;
+      gim += ((b1 > 0 ? 0.055 * Math.sin(gT * 0.9) : 0) - gim) * Math.min(1, 4 * dt);
+      point();
       flameT += dt;
       if (flameT > 0.09) { flameT = 0; flicker(); }
       for (var i = 0; i < N; i++) {
@@ -1178,7 +1349,8 @@
           len = Math.max(5, p.v * 0.05); c = Math.cos(p.a); s = Math.sin(p.a);
           if (p.k === 1) {
             r0 = at(RAD1, -(p.y + len)) * p.u; r1 = at(RAD1, -p.y) * p.u;
-            L.put(i, r0 * c, p.y + len, r0 * s, r1 * c, p.y, r1 * s);
+            G(r0 * c, p.y + len, g0); G(r1 * c, p.y, g1);
+            L.put(i, g0[0], g0[1], r0 * s, g1[0], g1[1], r1 * s);
             L.paint(i, 1, clamp(Math.min((-p.y - 225) / 25, (665 + p.y) / 260), 0, 1) * 0.95);
           } else {
             r0 = at(RAD2, p.s - len) * p.u; r1 = at(RAD2, p.s) * p.u;
@@ -1187,10 +1359,12 @@
           }
         } else if (p.k === 3) {      // thin lines of cold air and fire water coming through the plate and meeting
           y = -223 - 18 * p.t; r0 = p.r + (p.cold ? 3 : -3) * p.t; c = Math.cos(p.a); s = Math.sin(p.a);
-          L.put(i, r0 * c, y + 6, r0 * s, r0 * c, y, r0 * s);
+          G(r0 * c, y + 6, g0); G(r0 * c, y, g1);
+          L.put(i, g0[0], g0[1], r0 * s, g1[0], g1[1], r0 * s);
           L.tint(i, p.cold ? col.water : col.fuel, b1 > 0 ? 1 : 0);
         } else if (p.k === 4) {      // fire water running up inside the bell wall
-          L.put(i, p.side * at(MID, -(p.y - 5)), p.y - 5, 1, p.side * at(MID, -p.y), p.y, 1);
+          G(p.side * at(MID, -(p.y - 5)), p.y - 5, g0); G(p.side * at(MID, -p.y), p.y, g1);
+          L.put(i, g0[0], g0[1], 1, g1[0], g1[1], 1);
           L.tint(i, col.fuel, b1 > 0 ? 1 : 0);
         } else {                     // hot air from the small fire leaving its thin pipe
           L.put(i, 0, p.y + 5, -62, 0, p.y, -62);
@@ -1200,6 +1374,278 @@
       L.flush();
     };
     api.fuelChanged = flicker;
+    return api;
+  }
+
+  // =====================================================================
+  // machine 4: plate washing box (dishwasher)
+  // =====================================================================
+  function buildDish() {
+    var root = new THREE.Group();
+    function V(x, y, z) { return new THREE.Vector3(x, y, z || 0); }
+    function cbox(x0, x1, y0, y1, z0, z1, m) {
+      var g = addCut(root, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      g.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      return g;
+    }
+    function wbox(parent, x0, x1, y0, y1, z0, z1, m) {
+      var b = addWhole(parent, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      b.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      return b;
+    }
+    function LY(pts, seg) { return new THREE.LatheGeometry(prof(pts, 0, true), seg || 40); }   // [how high, how far out], spun around the up-down line
+    function LZ(pts, seg) { var g = LY(pts, seg); g.rotateX(Math.PI / 2); return g; }           // same, but lying on its side
+
+    // ---------------- outside box, table top, and the inside wash room (door is on the right) ----------------
+    cbox(-300, 300, -425, 425, -300, -296); cbox(-300, 300, -425, 425, 296, 300);
+    cbox(-300, 300, 421, 425, -296, 296); cbox(-300, -296, -425, 421, -296, 296); cbox(-300, 300, -425, -421, -296, 296);
+    cbox(288, 296, -421, -300, -296, 296);
+    cbox(-340, 340, 425, 450, -340, 340);
+    [[-270,-270],[-270,270],[270,-270],[270,270]].forEach(function (p) { tubeBetween(root, V(p[0], -425, p[1]), V(p[0], -442, p[1]), 12, mat.body); });
+    cbox(-285, 270, -300, 405, -285, -282); cbox(-285, 270, -300, 405, 282, 285);
+    cbox(-285, 270, 402, 405, -282, 282); cbox(-285, -282, -300, 402, -282, 282);
+    // floor that leans toward the middle, cut off square where it meets the walls, and the pool under it
+    var fClips = [cutPlane, new THREE.Plane(new THREE.Vector3(-1, 0, 0), 270), new THREE.Plane(new THREE.Vector3(1, 0, 0), 285),
+                  new THREE.Plane(new THREE.Vector3(0, 0, 1), 285), new THREE.Plane(new THREE.Vector3(0, 0, -1), 285)];
+    var floorM = new THREE.MeshLambertMaterial({ clippingPlanes: fClips }), floorCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: fClips });
+    var nFloor = new THREE.MeshNormalMaterial({ clippingPlanes: fClips }), nFloorCap = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide, clippingPlanes: fClips });
+    var cMetal = new THREE.Color(), heatM = new THREE.MeshLambertMaterial();
+    var lvPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), -374), wClips = [cutPlane, lvPlane];
+    var waterM = new THREE.MeshLambertMaterial({ clippingPlanes: wClips }), waterCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: wClips });
+    var nWater = new THREE.MeshNormalMaterial({ clippingPlanes: wClips }), nWaterCap = new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.BackSide, clippingPlanes: wClips });
+    function theme() {
+      floorM.color.set(cssVar('--case')); floorCap.color.set(cssVar('--fill')); cMetal.set(cssVar('--metal'));
+      waterM.color.set(cssVar('--water')); waterCap.color.set(cssVar('--water'));
+    }
+    themeFns.push(theme); theme();
+    var fGeo = LY([[-300,400],[-318,78],[-322,78],[-304,400]], 64);
+    var fa = new THREE.Mesh(fGeo, floorM); fa.userData.n = nFloor; root.add(fa);
+    var fb = new THREE.Mesh(fGeo, floorCap); fb.userData.n = nFloorCap; root.add(fb);
+    addCut(root, LY([[-318,78],[-380,78],[-380,0],[-376,0],[-376,74],[-318,74]], 48));
+    var wGeo = LY([[-375.5,0],[-375.5,73],[-318,73],[-318,0]], 48);
+    var wa = new THREE.Mesh(wGeo, waterM); wa.userData.n = nWater; root.add(wa);
+    var wb = new THREE.Mesh(wGeo, waterCap); wb.userData.n = nWaterCap; root.add(wb);
+    // food catchers: a flat plate with holes over the pool, and a fine net standing in it
+    addCut(root, LY([[-316,74],[-316,32],[-313,32],[-313,74]], 48), mat.metalC);
+    addCut(root, LY([[-314,30],[-372,30],[-372,27],[-314,27]], 32), mat.metalC);
+
+    // ---------------- door, with the soap cup, the thinking board and the air way out ----------------
+    cbox(296, 300, -300, 400, -296, 296); cbox(270, 273, -300, 345, -282, 282);
+    cbox(270, 300, 396, 400, -296, 296); cbox(273, 296, -300, -296, -296, 296); cbox(270, 296, 345, 348, -290, 290);
+    wbox(root, 284, 286, 352, 392, -120, 120, mat.body);                      // thinking board
+    [-200, -170, -140, -110].forEach(function (z) { wbox(root, 278, 290, 400, 404, z - 9, z + 9, mat.metal); });   // push buttons
+    wbox(root, 273, 294, 20, 78, -55, 55, mat.metal);                         // soap cup body, inside the door
+    wbox(root, 274, 284, 28, 60, -40, 40, mat.body);                          // soap
+    var lid = new THREE.Group();
+    lid.position.set(268, 20, 0);
+    wbox(lid, -1.5, 1.5, 0, 62, -48, 48, mat.metal);
+    root.add(lid);
+    wbox(root, 262, 290, 404, 412, -10, 10, mat.metal);                       // door hook
+    wbox(root, 264, 270, 328, 346, -45, 45, mat.metal);                       // air way out
+    tubeBetween(root, V(285, -300, -280), V(285, -300, 280), 6);              // door turn stick
+    pipeThrough(root, [V(285,352,60), V(285,-280,60), V(230,-405,60), V(-120,-412,60)], 1.5, mat.body);   // power line from the thinking board
+
+    // ---------------- holders, made of wire, and what is in them ----------------
+    var wires = [];
+    function rack(yb, h, tx, tz) {
+      var x, z;
+      for (z = -250; z <= 250; z += 50) wires.push([0, yb, z, 500, 3, 3]);
+      for (x = -250; x <= 250; x += 50) wires.push([x, yb, 0, 3, 3, 500]);
+      [yb + h, yb + h / 2].forEach(function (y) {
+        wires.push([0, y, -250, 500, 3, 3], [0, y, 250, 500, 3, 3], [-250, y, 0, 3, 3, 500], [250, y, 0, 3, 3, 500]);
+      });
+      for (x = -250; x <= 250; x += 100) wires.push([x, yb + h / 2, -250, 3, h, 3], [x, yb + h / 2, 250, 3, h, 3]);
+      for (z = -150; z <= 150; z += 100) wires.push([-250, yb + h / 2, z, 3, h, 3], [250, yb + h / 2, z, 3, h, 3]);
+      tx.forEach(function (px) { tz.forEach(function (pz) { wires.push([px, yb + 30, pz, 2.5, 60, 2.5]); }); });
+    }
+    rack(-245, 110, [-240, -200, -160, -120, -80, -40, 0, 40], [-200, -120, -40, 40, 120, 200]);
+    rack(55, 85, [-240, -180, -120, -60, 0], [-190, -105, -20, 20, 105, 190]);
+    // knife cup: a small wire box in the bottom holder
+    [[170,-190,120,3,110,3],[250,-190,120,3,110,3],[170,-190,230,3,110,3],[250,-190,230,3,110,3],
+     [210,-135,120,80,3,3],[210,-135,230,80,3,3],[170,-135,175,3,3,110],[250,-135,175,3,3,110],
+     [210,-190,120,80,3,3],[210,-190,230,80,3,3],[170,-190,175,3,3,110],[250,-190,175,3,3,110]].forEach(function (w) { wires.push(w); });
+    var wim = new THREE.InstancedMesh(UNIT, mat.metal, wires.length), wm = new THREE.Matrix4(), ws = new THREE.Matrix4();
+    wim.userData.n = nFree; wim.frustumCulled = false;
+    wires.forEach(function (w, i) { wm.makeTranslation(w[0], w[1], w[2]); wm.multiply(ws.makeScale(w[3], w[4], w[5])); wim.setMatrixAt(i, wm); });
+    root.add(wim);
+    [264, -270].forEach(function (z) { wbox(root, -260, 260, 58, 64, z, z + 6, mat.body); });       // slide bars for the top holder
+    [[-200,-262],[200,-262],[-200,262],[200,262]].forEach(function (p) {
+      var r1 = addWhole(root, LZ([[-3,0],[-3,9],[3,9],[3,0]], 16), mat.body); r1.position.set(p[0], -252, p[1]);
+      var r2 = addWhole(root, LZ([[-3,0],[-3,8],[3,8],[3,0]], 16), mat.body); r2.position.set(p[0], 52, p[1]);
+    });
+    // plates standing on edge, a pot, cups and glasses face down, bowls leaning
+    var plateG = new THREE.CylinderGeometry(105, 96, 6, 36); plateG.rotateZ(Math.PI / 2);
+    var smallG = new THREE.CylinderGeometry(84, 76, 6, 32); smallG.rotateZ(Math.PI / 2);
+    for (var i = 0; i < 7; i++) {
+      var pl = addWhole(root, plateG, mat.body); pl.position.set(-220 + i * 40, -132, -110); pl.rotation.z = 0.12;
+      if (i < 5) { var sp = addWhole(root, smallG, mat.body); sp.position.set(-220 + i * 40, -153, 120); sp.rotation.z = 0.12; }
+    }
+    var pot = addWhole(root, LY([[0,0],[0,72],[90,72],[90,68],[4,68],[4,0]], 28), mat.body);
+    pot.position.set(175, -150, -120); pot.rotation.x = Math.PI;
+    var cupG = LY([[0,0],[0,30],[70,38],[70,34],[5,27],[5,0]], 20), glassG = LY([[0,0],[0,24],[105,30],[105,27],[4,21],[4,0]], 20);
+    var bowlG = LY([[0,0],[0,25],[45,75],[45,71],[5,22],[5,0]], 24);
+    [-210, -150, -90, -30].forEach(function (x) {
+      [-150, -62].forEach(function (z) { var c = addWhole(root, cupG, mat.body); c.position.set(x, 132, z); c.rotation.x = Math.PI; c.rotation.z = 0.2; });
+      [62, 150].forEach(function (z) { var g = addWhole(root, glassG, mat.body); g.position.set(x, 165, z); g.rotation.x = Math.PI; g.rotation.z = 0.15; });
+    });
+    [60, 125, 190].forEach(function (x) {
+      [-100, 100].forEach(function (z) { var b = addWhole(root, bowlG, mat.body); b.position.set(x, 120, z); b.rotation.z = 1.25; });
+    });
+    // things in the knife cup: eating ends up on the spoons, sharp end down on the knife
+    [[185,140],[205,170],[225,150],[235,205]].forEach(function (p, k) {
+      tubeBetween(root, V(p[0], -235, p[1]), V(p[0] + 6, -95, p[1] + 4), 2.5);
+      var head = addWhole(root, new THREE.SphereGeometry(11, 10, 8), mat.body); head.position.set(p[0] + 7, -84, p[1] + 4); head.scale.set(0.35, 1.3, 1);
+    });
+    wbox(root, 196, 199, -235, -120, 200, 214, mat.metal);
+    tubeBetween(root, V(197.5, -120, 207), V(197.5, -78, 207), 5, mat.body);
+
+    // ---------------- water throwing: three turning arms and the pipes that feed them ----------------
+    function arm(y, len, hub) {
+      var g = new THREE.Group();
+      g.position.y = y;
+      wbox(g, -len / 2, len / 2, -5, 5, -18, 18, mat.metal);
+      addWhole(g, new THREE.CylinderGeometry(hub, hub, 16, 16), mat.body);
+      for (var x = -len / 2 + 25; x < len / 2; x += 50) if (Math.abs(x) > 30) wbox(g, x - 4, x + 4, 5, 8, -4, 4, mat.body);
+      root.add(g);
+      return g;
+    }
+    var armL = arm(-284, 500, 20), armM = arm(30, 470, 16), armT = arm(390, 130, 10);
+    tubeBetween(root, V(0, -400), V(0, -292), 9, mat.body);                   // up through the middle of the pool to the bottom arm
+    tubeBetween(root, V(-272, -400), V(-272, 396), 9, mat.body);              // up the back wall
+    tubeBetween(root, V(-272, 44), V(0, 44), 8, mat.body);                    // across to the middle arm
+    tubeBetween(root, V(-272, 396), V(0, 396), 6, mat.body);                  // across the top to the top thrower
+    tubeBetween(root, V(-40, -400), V(-272, -400), 8, mat.body);
+    tubeBetween(root, V(-40, -400), V(0, -400), 8, mat.body);
+    wbox(root, -56, -24, -414, -386, -16, 16, mat.metal);                     // arm picker
+    // water pusher (cut open so you can see its turning wings) with its power turner behind it
+    addCut(root, LZ([[-18,34],[18,34],[18,30],[-18,30]], 32)).position.set(-140, -388, 0);
+    addWhole(root, LZ([[-45,0],[-45,27],[45,27],[45,0]], 24), mat.body).position.set(-140, -388, -64);
+    var imp1 = new THREE.Group(), imp2 = new THREE.Group();
+    imp1.position.set(-140, -388, 0); imp2.position.set(125, -394, 0);
+    for (i = 0; i < 6; i++) { var b1 = addWhole(imp1, new THREE.BoxGeometry(24, 4, 26), mat.metal), a1 = i * Math.PI / 3; b1.position.set(15 * Math.cos(a1), 15 * Math.sin(a1), 0); b1.rotation.z = a1 + 0.5; }
+    for (i = 0; i < 4; i++) { var b2 = addWhole(imp2, new THREE.BoxGeometry(15, 3, 20), mat.metal), a2 = i * Math.PI / 2; b2.position.set(9 * Math.cos(a2), 9 * Math.sin(a2), 0); b2.rotation.z = a2 + 0.5; }
+    root.add(imp1); root.add(imp2);
+    tubeBetween(root, V(-76, -362), V(-116, -374), 10, mat.body);
+    tubeBetween(root, V(-108, -398), V(-56, -402), 8, mat.body);
+    // emptying pusher, its one-way flap, and the long way out: up high behind the back wall, then down and away
+    addCut(root, LZ([[-13,22],[13,22],[13,19],[-13,19]], 24)).position.set(125, -394, 0);
+    addWhole(root, LZ([[-25,0],[-25,17],[25,17],[25,0]], 20), mat.body).position.set(125, -394, -40);
+    tubeBetween(root, V(76, -362), V(108, -382), 8, mat.body);
+    wbox(root, 52, 70, -414, -398, -18, -2, mat.metal);
+    pipeThrough(root, [V(120,-408,-10), V(-100,-410,-10), V(-291,-405,-10), V(-291,335,-10), V(-291,350,-25), V(-291,335,-40), V(-291,-385,-40), V(-345,-392,-40)], 5.5, mat.body);
+    // clean water in: a door that opens with power, a pipe up the back, and a way in high on the back wall
+    wbox(root, -262, -236, -410, -384, 48, 74, mat.metal);
+    tubeBetween(root, V(-249, -384, 61), V(-249, -372, 61), 7, mat.body);
+    pipeThrough(root, [V(-345,-398,61), V(-262,-398,61)], 5, mat.body);
+    pipeThrough(root, [V(-236,-398,61), V(-291,-380,44), V(-291,100,40), V(-282,104,40)], 4.5, mat.body);
+    wbox(root, -282, -268, 92, 112, 28, 52, mat.metal);
+    var floatG = addWhole(root, new THREE.CylinderGeometry(16, 16, 20, 16), mat.body);
+    floatG.position.set(-150, -296, 150);
+    // heat ring on the floor
+    var hGeo = new THREE.TorusGeometry(205, 5, 8, 64); hGeo.rotateX(Math.PI / 2);
+    var heater = new THREE.Mesh(hGeo, heatM); heater.userData.n = nFree; heater.position.y = -299; root.add(heater);
+
+    // ---------------- moving lines of water, soap and wet air ----------------
+    var dots = [];
+    function make(kind, n, init) { for (var q = 0; q < n; q++) { var d = { k: kind, on: false, t: 0 }; init(d); dots.push(d); } }
+    make('jl', 44, function (d) { d.t = rnd(0, 0.35); });
+    make('jm', 40, function (d) { d.t = rnd(0, 0.3); d.down = dots.length % 2 === 0; });
+    make('jt', 14, function (d) { d.t = rnd(0, 0.4); });
+    make('rain', 30, function (d) { d.x = rnd(-250, 250); d.z = rnd(-250, 250); d.y = rnd(-295, 380); });
+    make('fill', 12, function (d) { d.y = rnd(-296, 100); });
+    make('soap', 12, function (d) { d.life = 0; d.x = 0; d.y = 0; d.z = 0; });
+    make('wet', 24, function (d) { d.x = rnd(-230, 230); d.z = rnd(-230, 230); d.y = rnd(-100, 380); });
+    make('vent', 10, function (d) { d.x = 285; d.y = rnd(404, 470); d.z = rnd(-40, 40); });
+    var L = lineSet(root, dots.length, mat.dots);
+
+    // ---------------- the wash, start to end ----------------
+    var PH = [['fill', 4, 'Clean water is coming in'], ['wash', 9, 'Washing: water and soap are thrown at everything'], ['drain', 4, 'The food water is being sent away'],
+              ['fill', 3, 'More clean water is coming in'], ['wash', 5, 'Washing the soap off'], ['drain', 3, 'Sending that water away too'],
+              ['dry', 6, 'Drying with heat'], ['done', 1.5, 'Done. Here it starts over']];
+    var total = 0; PH.forEach(function (p) { total += p[1]; });
+    var pi = 0, T = 0, lv = 0, mode = null, aL = 0, aM = 0.7, aT = 0, heat = 0, lidA = 0, soaped = false;
+    var HOLD = { fill: 0, wash: 1, filter: 1, drain: 2, dry: 6 };
+    var api = { root: root, tagP: {}, caption: PH[0][2], progress: 0 };
+    function nozzle(d, a, y, len) {
+      var rho = rnd(35, len / 2 - 10) * (Math.random() < 0.5 ? -1 : 1);
+      d.x0 = rho * Math.cos(a); d.z0 = -rho * Math.sin(a); d.y0 = y;
+      d.vx = rnd(-50, 50); d.vz = rnd(-50, 50);
+    }
+    function setLevel() {
+      lvPlane.constant = -374 + lv * 56;
+      heatM.color.copy(cMetal).lerp(col.fire, heat);
+      lid.rotation.z = lidA;
+    }
+    setLevel();
+    api.setMode = function (m) {
+      mode = m;
+      if (m && HOLD[m] !== undefined) { pi = HOLD[m]; T = 0; lv = PH[pi][0] === 'fill' ? 0 : 1; soaped = false; }
+    };
+    api.update = function (dt) {
+      var f = S.f, kind = PH[pi][0], i, d;
+      T += dt * f;
+      if (T >= PH[pi][1]) {
+        if (mode && HOLD[mode] !== undefined) { T = 0; if (kind === 'fill') lv = 0; if (kind === 'drain') lv = 1; }
+        else { T = 0; pi = (pi + 1) % PH.length; if (pi === 0) { soaped = false; lv = 0; } }
+        kind = PH[pi][0];
+      }
+      var u = T / PH[pi][1], lower = Math.floor(T / 2.2) % 2 === 0, washing = kind === 'wash';
+      if (kind === 'fill') lv = Math.max(lv, u);
+      else if (kind === 'drain') lv = Math.min(lv, 1 - u);
+      heat += ((kind === 'dry' ? 1 : washing ? 0.45 : 0) - heat) * Math.min(1, 2 * dt);
+      var wantLid = pi === 1 && T > 1 || (pi > 1 && pi < 7);
+      lidA += ((wantLid ? -1.45 : 0) - lidA) * Math.min(1, 5 * dt);
+      var dropSoap = pi === 1 && T > 1 && !soaped;
+      if (dropSoap) soaped = true;
+      setLevel();
+      if (washing) {
+        if (lower) aL += 3.2 * f * dt; else { aM += 3.2 * f * dt; aT -= 5 * f * dt; }
+        imp1.rotation.z += 16 * f * dt;
+      }
+      if (kind === 'drain') imp2.rotation.z += 16 * f * dt;
+      armL.rotation.y = aL; armM.rotation.y = aM; armT.rotation.y = aT;
+      api.caption = PH[pi][2];
+      var done = 0; for (i = 0; i < pi; i++) done += PH[i][1];
+      api.progress = mode ? u : (done + T) / total;
+      for (i = 0; i < dots.length; i++) {
+        d = dots[i];
+        if (d.k === 'jl' || d.k === 'jm' || d.k === 'jt') {
+          d.t += dt;
+          var life = d.k === 'jl' ? 0.35 : d.k === 'jm' ? 0.28 : 0.4;
+          if (d.t > life) {
+            d.t = 0;
+            d.on = washing && (d.k === 'jl' ? lower : !lower);
+            if (d.k === 'jl') { nozzle(d, aL, -278, 500); d.vy = 700; }
+            else if (d.k === 'jm') { nozzle(d, aM, d.down ? 24 : 36, 470); d.vy = d.down ? -380 : 500; }
+            else { nozzle(d, aT, 384, 130); d.vy = -430; }
+          }
+        }
+        else if (d.k === 'rain') { d.y -= 620 * dt; if (d.y < -296) { d.y = 380; d.x = rnd(-250, 250); d.z = rnd(-250, 250); } d.on = washing; }
+        else if (d.k === 'fill') { d.y -= 520 * dt; if (d.y < -296) d.y = 100; d.on = kind === 'fill'; }
+        else if (d.k === 'soap') {
+          if (dropSoap) { d.life = rnd(0.6, 1.1); d.x = 262 + rnd(-6, 0); d.y = rnd(30, 60); d.z = rnd(-35, 35); }
+          if (d.life > 0) { d.life -= dt; d.y -= 330 * dt; d.x -= 60 * dt; }
+        }
+        else if (d.k === 'wet') { d.y += 45 * dt; if (d.y > 385) { d.y = rnd(-120, 60); d.x = rnd(-230, 230); d.z = rnd(-230, 230); } d.on = kind === 'dry'; }
+        else { d.y += 55 * dt; d.x += 12 * dt; if (d.y > 480) { d.y = 404; d.x = rnd(276, 292); } d.on = kind === 'dry'; }
+      }
+    };
+    api.draw = function () {
+      for (var i = 0; i < dots.length; i++) {
+        var d = dots[i], t0, t1;
+        if (d.k === 'jl' || d.k === 'jm' || d.k === 'jt') {
+          t1 = d.t; t0 = Math.max(0, t1 - 0.035);
+          L.put(i, d.x0 + d.vx * t0, d.y0 + d.vy * t0 - 450 * t0 * t0, d.z0 + d.vz * t0, d.x0 + d.vx * t1, d.y0 + d.vy * t1 - 450 * t1 * t1, d.z0 + d.vz * t1);
+          L.tint(i, col.water, d.on && d.x0 !== undefined ? 1 : 0);
+        }
+        else if (d.k === 'rain') { L.put(i, d.x, d.y + 14, d.z, d.x, d.y, d.z); L.tint(i, col.water, d.on ? 0.8 : 0); }
+        else if (d.k === 'fill') { L.put(i, -268, d.y + 16, 40, -268, d.y, 40); L.tint(i, col.water, d.on ? 1 : 0); }
+        else if (d.k === 'soap') { L.put(i, d.x, d.y + 5, d.z, d.x, d.y, d.z); L.paint(i, 0, d.life > 0 ? 0.9 : 0); }
+        else if (d.k === 'wet') { L.put(i, d.x, d.y - 9, d.z, d.x, d.y, d.z); L.paint(i, 0.3, d.on ? 0.45 : 0); }
+        else { L.put(i, d.x, d.y - 8, d.z, d.x, d.y, d.z); L.paint(i, 0.3, d.on ? 0.6 * clamp((480 - d.y) / 60, 0, 1) : 0); }
+      }
+      L.flush();
+    };
     return api;
   }
 
@@ -1299,33 +1745,81 @@
       title: 'Hot Water Pusher', tsub: 'what people call a steam engine',
       sub: 'The machine that turns fire and water into a wheel going around. It ran the first trains.',
       corner: 'The turning wheel can run other machines',
-      build: buildSteam, cam: { cx: 55, cy: 45, hw: 630, hh: 365, az: -0.32, el: 0.22 }, cutMax: 105, pane: [1150, 500],
+      build: buildSteam, cam: { cx: 55, cy: 60, hw: 640, hh: 385, az: -0.32, el: 0.22 }, cutMax: 110, pane: [1180, 520],
       fuelLabel: 'How big the fire is', barLabel: 'How fast the wheel turns', barLo: 'slow', barHi: 'fast',
       bar: function (f) { return f / 1.7; },
       steps: [
-        ['The whole thing', 'A fire heats water until it turns into water air. Water air takes up far more room than water did, so it pushes hard on everything around it. This machine lets it push a block back and forth, and an arm turns that into a wheel going around. Press a name on the drawing to hear about that part.'],
-        ['1. Make water air', 'The fire sits right under a strong round box that is half full of water. The water gets so hot that it turns into water air and fills the top of the box. It has nowhere to go, so it pushes harder and harder.'],
-        ['2. Let it in', 'A pipe carries the water air to a small room with a sliding door. The door lets it into one end of the push room, then the other end, over and over.'],
-        ['3. Push the block', 'Water air rushes in on one side of the block and pushes it to the far end. Then the door slides over. New water air comes in on the other side and pushes the block back, and the used water air leaves through the out pipe in a puff.'],
-        ['4. Turn the wheel', 'The block is joined to the edge of a heavy wheel by an arm, so going back and forth becomes going around. The wheel also moves the sliding door. That means the machine itself picks which side gets pushed next, and it keeps going as long as the fire does.']
+        ['The whole thing', 'A fire heats water until it turns into water air. Water air takes up far more room than the water did, so it pushes hard on everything around it. This machine lets it push a block back and forth, and an arm turns that into a wheel going around. Press a step to look closer, or a name to hear about that part. Try making the fire very big.'],
+        ['1. Make water air', 'The fire burns on bars at the front, under a round box that is half full of water. The hot air from the fire runs along under the box to the back, turns around, and comes forward again through pipes that go right through the water. That way the fire heats the water twice before the smoke goes up the pipe. The water turns into water air and gathers at the top.',
+          { key: 'boil', cam: { cx: -340, cy: 55, hw: 190, hh: 275 } }],
+        ['2. Let it in', 'A pipe carries the water air to a small room on top of the push room. Inside it a sliding door lets water air into one end of the push room, then the other, over and over. On the way there, the water air has to get past a hand door, and past the speed keeper, which closes that door a little whenever the wheel starts going too fast.',
+          { key: 'in', cam: { cx: 35, cy: 165, hw: 160, hh: 125 } }],
+        ['3. Push the block', 'Water air rushes in on one side of the block and pushes it to the far end. Then the door slides over. New water air comes in on the other side and pushes the block back, while the used water air goes out through the space under the door and up the out pipe in a puff. The block has to fit very tightly, or the water air would just go around it.',
+          { key: 'push', cam: { cx: 20, cy: 0, hw: 190, hh: 135 } }],
+        ['4. Turn the wheel', 'The stick from the block cannot move side to side, so it ends in a part that slides between two bars. From there an arm reaches to a point near the edge of a plate on the wheel\'s stick, and going back and forth becomes going around. The same stick has a small wheel on it that is not in the middle. That one moves the sliding door, so the machine itself picks which side gets pushed next.',
+          { key: 'turn', cam: { cx: 320, cy: -10, hw: 290, hh: 220 } }]
       ],
       tags: [
-        ['Water room', [-330, 105], [-340, 300], 1, 'Water room: a strong round box half full of water. The fire makes the water so hot it turns into water air, which fills the top. If nothing ever let the water air out, this box would blow up, so there is always a small door on top that opens by itself when the push gets too big.'],
-        ['Water air pipe', [-170, 205], [-190, 255], 2, 'Water air pipe: it carries water air from the top of the water room to the door room.'],
-        ['Sliding door', [0, 100], [-70, 300], 2, 'Sliding door: it slides back and forth and lets water air into one end of the push room, then the other. At the same time, the space under it lets the used water air out of the far end.'],
-        ['Out pipe', [0, 240, -85], [110, 300], 3, 'Out pipe: used water air leaves here in a puff each time the block changes direction. That is the sound these machines make.'],
-        ['Door arm', [290, 60, -30], [290, 250], 4, 'Door arm: the wheel moves the sliding door with this, a little ahead of the block. So the machine itself picks which side gets pushed next.'],
-        ['Heavy wheel', [528, 108, -75], [540, 300], 4, 'Heavy wheel: once it is turning it does not like to stop. That carries the block past the two ends, where the water air cannot push it around.'],
-        ['Fire box', [-330, -120], [-330, -250], 1, 'Fire box: the fire burns here, right under the water. A bigger fire makes more water air, and the wheel turns faster.'],
-        ['Push room', [60, -42], [-50, -250], 3, 'Push room: water air comes in on one side of the block and pushes it to the other end. Then the door changes sides and the block gets pushed back.'],
-        ['Pushing block', [0, 0], [140, -250], 3, 'Pushing block: it fits the push room tightly, so the water air cannot get past it and has to move it.'],
-        ['Arm', [300, 0], [330, -250], 4, 'Arm: it joins the block to a point near the edge of the wheel. When the block goes back and forth, the arm makes the wheel go around.']
+        ['Smoke pipe', [-462, 250], [-540, 250], 0, 'Smoke pipe: the smoke leaves here. Hot air going up the pipe also pulls new air in under the fire, which keeps it burning.'],
+        ['Water room', [-340, 110], [-330, 345], 0, 'Water room: a strong round box half full of water, with the fire under it. This is where the water air is made.'],
+        ['Water air pipe', [-170, 218], [-170, 300], 0, 'Water air pipe: it carries water air from the top of the water room to the door room.'],
+        ['Speed keeper', [70, 240, -122], [100, 345], 0, 'Speed keeper: two heavy balls that fly out as the wheel goes faster. It keeps the wheel at one speed by itself. Press step 2 to see it.'],
+        ['Out pipe', [0, 250, -85], [-40, 300], 0, 'Out pipe: used water air leaves here in a puff each time the block changes direction. That is the sound these machines make.'],
+        ['Heavy wheel', [528, 108, -75], [545, 300], 0, 'Heavy wheel: once it is turning it does not like to stop. That carries the block past the two ends, where the water air cannot push it around.'],
+        ['Fire', [-410, -85], [-410, -250], 0, 'Fire: a bigger fire makes more water air, and the wheel turns faster.'],
+        ['Push room', [40, -30], [0, -250], 0, 'Push room: water air comes in on one side of the block and pushes it to the other end. Then the door changes sides and the block gets pushed back.'],
+        ['Arm', [300, 0], [300, -250], 0, 'Arm: it joins the block to a point near the edge of the wheel plate. When the block goes back and forth, the arm makes the wheel go around.'],
+        ['Water pusher', [90, -62, -70], [170, -290], 0, 'Water pusher: water that leaves as water air has to be put back, or the water room would run dry. Press step 4 to see it.'],
+
+        ['Smoke pipe', [-462, 240], [-490, 290], 1, 'Smoke pipe: the smoke leaves here. Hot air going up also pulls new air in under the fire.', 'boil'],
+        ['Smoke door', [-462, 180], [-410, 310], 1, 'Smoke door: a plate in the smoke pipe that can be turned. Closing it a little slows the pull of air and so the fire.', 'boil'],
+        ['Push clock', [-395, 192], [-395, 262], 1, 'Push clock: its pointer shows how hard the water air is pushing on the walls of the water room.', 'boil'],
+        ['Top hat', [-340, 180], [-320, 290], 1, 'Top hat: water air gathers here, high above the water, so that the pipe takes away water air and not drops of water. Drops in the push room are bad, because water cannot be pressed.', 'boil'],
+        ['Small door on top', [-270, 176], [-235, 262], 1, 'Small door on top: a heavy arm holds it shut. If the water air ever pushes too hard, it lifts the arm by itself and gets out before the water room can blow up. Make the fire very big to see it open.', 'boil'],
+        ['Water glass', [-458, 88, -40], [-515, 140], 1, 'Water glass: a see-through pipe joined to the water room at top and bottom, so the water inside it stands as high as the water in the room. If the water ever drops below the fire pipes, the fire will hurt them.', 'boil'],
+        ['Smoke box', [-476, 15], [-520, 50], 1, 'Smoke box: the hot air comes out of the fire pipes into this box and then goes up the smoke pipe.', 'boil'],
+        ['Fire pipes', [-300, 22], [-180, 15], 1, 'Fire pipes: hot air from the fire runs through these on its way back to the front. Many small pipes touch much more water than one big one would.', 'boil'],
+        ['Fire door', [-476, -76], [-505, -215], 1, 'Fire door: this is where more wood or black rock gets thrown in.', 'boil'],
+        ['Fire bars', [-400, -110], [-420, -245], 1, 'Fire bars: the fire sits on these. Air comes up between them from below, and what is left after burning falls through.', 'boil'],
+        ['Ash room', [-400, -140], [-340, -215], 1, 'Ash room: what is left of the fire falls down here and gets pulled out through the lower door.', 'boil'],
+        ['Turn-up wall', [-338, -100], [-270, -245], 1, 'Turn-up wall: it pushes the fire up against the bottom of the water room before the hot air runs to the back.', 'boil'],
+
+        ['Hand door', [0, 185, 26], [-75, 255], 2, 'Hand door: the wheel on it opens and closes the pipe by hand. This is how the machine is started and stopped.', 'in'],
+        ['Speed keeper', [70, 215, -122], [125, 275], 2, 'Speed keeper: a belt from the big stick turns it. It is joined to the hand door by a thin arm, so it can close the pipe a little when the wheel speeds up and open it when the wheel slows down.', 'in'],
+        ['Flying balls', [100, 225, -122], [165, 235], 2, 'Flying balls: the faster they go around, the farther out and up they fly. That lifting is what moves the thin arm.', 'in'],
+        ['Belt', [240, 90, -122], [175, 110], 2, 'Belt: it carries turning from the big stick up to the speed keeper.', 'in'],
+        ['Door room', [-55, 125], [-120, 165], 2, 'Door room: it is always full of fresh water air from the pipe, waiting to be let in.', 'in'],
+        ['Sliding door', [0, 100], [-115, 112], 2, 'Sliding door: it slides back and forth across three holes. When it uncovers one end hole, water air goes down to that end of the push room. At the same time the space under it joins the other end hole to the out hole.', 'in'],
+        ['Air paths', [-58, 66], [-125, 62], 2, 'Air paths: one runs to each end of the push room. Each is used for letting water air in, and then for letting it out again.', 'in'],
+        ['Out hole', [0, 70], [115, 70], 2, 'Out hole: the middle hole. Used water air comes up here from under the sliding door and goes to the out pipe.', 'in'],
+
+        ['End covers', [-102, 30], [-160, 60], 3, 'End covers: they close the ends of the push room. They are held on by a ring of turn-pins so they can be taken off to reach the block.', 'push'],
+        ['Warm coat', [-45, -59], [-140, -112], 3, 'Warm coat: the push room is covered so it stays hot. If it were cold, water air would turn back into water inside it and stop pushing.', 'push'],
+        ['Pushing block', [0, 0], [-55, -118], 3, 'Pushing block: it fits the push room tightly, so the water air cannot get past it and has to move it.', 'push'],
+        ['Tight rings', [0, -49], [20, -95], 3, 'Tight rings: springy rings that sit in cuts around the block and press out against the wall, to close the last small space.', 'push'],
+        ['Push room', [45, -30], [80, -118], 3, 'Push room: round and very smooth inside. Water air comes in at one end, pushes, and is let out again.', 'push'],
+        ['Stick seal', [110, 12], [165, 55], 3, 'Stick seal: the stick has to slide out through the end cover without letting water air out. Soft stuff is pressed tight around it here.', 'push'],
+        ['Drip taps', [82, -66], [150, -105], 3, 'Drip taps: when the machine is cold, some water air turns to water in the push room. These let it drip out, because the block cannot press water.', 'push'],
+
+        ['Slide bars', [200, 28], [140, 130], 4, 'Slide bars: the arm pushes up and down as well as along. These bars take that push, so the stick from the block stays straight. The cups on top drip slide stuff onto them.', 'turn'],
+        ['Sliding end', [190, 0], [200, 175], 4, 'Sliding end: the end of the block\'s stick. It slides between the bars and holds one end of the arm.', 'turn'],
+        ['Door arm', [290, 60, -30], [300, 150], 4, 'Door arm: it reaches from the small off-middle wheel to the stick of the sliding door.', 'turn'],
+        ['Off-middle wheel', [420, 16, -30], [400, 190], 4, 'Off-middle wheel: a round plate on the big stick that is not in the middle, so it moves back and forth as the stick turns. It is set a little ahead of the block, so the door is already open when the block gets to the end.', 'turn'],
+        ['Heavy wheel', [528, 108, -75], [575, 175], 4, 'Heavy wheel: once it is turning it does not like to stop. That carries the block past the two ends, where the water air cannot push it around.', 'turn'],
+        ['Arm', [300, 0], [290, -195], 4, 'Arm: it joins the sliding end to a point near the edge of the wheel plate.', 'turn'],
+        ['Wheel plate', [395, -45, -14], [400, -215], 4, 'Wheel plate: the arm holds on near its edge, not at its middle. That is what turns a push into going around.', 'turn'],
+        ['Stick holders', [420, 14, -48], [545, -190], 4, 'Stick holders: the big stick turns inside these. Each has a cup on top that drips slide stuff in, so that the stick does not get hot and stick.', 'turn'],
+        ['Water pusher', [90, -62, -70], [110, -190], 4, 'Water pusher: a small pusher worked by the sliding end. On every turn it pushes a little water from the water box into the water room, against all the water air pushing back.', 'turn'],
+        ['Water box', [145, -125, -110], [215, -215], 4, 'Water box: clean water waits here to be pushed into the water room.', 'turn']
       ],
-      loose: [['Smoke', -466, 345], ['Don\'t touch<br>(very hot)', -330, 28, 1]],
-      gloss: [['Hot water pusher', 'steam engine'], ['Water air', 'steam'], ['Water room', 'boiler'], ['Fire box', 'firebox'],
-              ['Sliding door', 'slide valve'], ['Push room', 'cylinder'], ['Pushing block', 'piston'], ['Arm', 'connecting rod'],
-              ['Door arm', 'eccentric rod'], ['Heavy wheel', 'flywheel'], ['Out pipe', 'exhaust'], ['Small door on top', 'safety valve']],
-      fine: 'The outside is cut open, but the moving parts are left whole. The push room is drawn as a box so you can see into it. Real ones are round, and the small door on top of the water room is left out of the drawing.'
+      loose: [['Smoke', -462, 350], ['Don\'t touch<br>(very hot)', -340, 30, 1]],
+      gloss: [['Hot water pusher', 'steam engine'], ['Water air', 'steam'], ['Water room', 'boiler'], ['Fire pipes', 'fire tubes'], ['Fire bars', 'grate'],
+              ['Smoke door', 'damper'], ['Top hat', 'steam dome'], ['Small door on top', 'safety valve'], ['Push clock', 'pressure gauge'], ['Water glass', 'gauge glass'],
+              ['Hand door', 'throttle valve'], ['Speed keeper', 'governor'], ['Sliding door', 'slide valve'], ['Door room', 'steam chest'], ['Air paths', 'ports'],
+              ['Push room', 'cylinder'], ['Pushing block', 'piston'], ['Tight rings', 'piston rings'], ['Stick seal', 'stuffing box'], ['Drip taps', 'drain cocks'],
+              ['Sliding end', 'crosshead'], ['Arm', 'connecting rod'], ['Wheel plate', 'crank'], ['Off-middle wheel', 'eccentric'], ['Heavy wheel', 'flywheel'],
+              ['Stick holders', 'bearings'], ['Water pusher', 'feed pump'], ['Slide stuff', 'oil']],
+      fine: 'This is a mill machine of the kind that ran works full of other machines for a hundred years. The outside is cut open, but the moving parts are left whole. The fire-pipe water room shown here is one of several kinds that were used.'
     },
     rocket: {
       title: 'Flying Fire Tower', tsub: 'what people call a rocket',
@@ -1341,10 +1835,10 @@
           { key: 'eng', mode: 'eng', cam: { cx: 0, cy: -265, hw: 235, hh: 150 } }],
         ['3. Burn it', 'The cold air goes straight to the top of the fire room. The fire water takes the long way: down a pipe to a ring at the bottom of the bell, then up inside the walls, which keeps the walls from getting soft. At the top, both are pushed through a plate full of small holes. The thin lines hit each other, break into tiny drops, mix, and burn. The fire only has to be lit once. After that, new drops burn as soon as they meet it.',
           { key: 'eng', mode: 'eng', cam: { cx: 0, cy: -265, hw: 235, hh: 150 } }],
-        ['4. Shoot it down', 'Burning turns the drops into very hot air that needs far more room. The only way out is one small opening. Past it, the walls open wide like a bell, and that shape makes the hot air go faster than sound. The more stuff the tower throws down, and the faster, the harder it is pushed up. It is not pushing on the ground or on the air. It is pushing on its own fire.',
+        ['4. Shoot it down', 'Burning turns the drops into very hot air that needs far more room. The only way out is one small opening. Past it, the walls open wide like a bell, and that shape makes the hot air go faster than sound. The more stuff the tower throws down, and the faster, the harder it is pushed up. It is not pushing on the ground or on the air. It is pushing on its own fire. The whole fire room hangs from one joint, and two pushers swing it a little from side to side. Pointing the fire is how the tower steers.',
           { key: 'eng', mode: 'eng', cam: { cx: 0, cy: -265, hw: 235, hh: 150 } }],
         ['5. Drop the empty part', 'Empty cans are just weight. So when the first part has used everything up, its fire stops and the tower lets go of it. The second part is small and light, with its own cans and its own fire room, and it lights once it is clear. Then the top cover comes off in two halves. When the second part is empty too, the thing it carries is going fast enough to keep falling around the world without coming down.',
-          { mode: 'split' }]
+          { key: 'split', mode: 'split', cam: { cx: 0, cy: 245, hw: 215, hh: 215 } }]
       ],
       tags: [
         ['Thing it carries', [0, 335], [-255, 385], 5, 'Thing it carries: this small box is the only part that is meant to stay in space. Everything under it is there just to get it going fast enough.'],
@@ -1355,6 +1849,20 @@
         ['Cold air can', [-40, 50], [-270, 60], 1, 'Cold air can: air made so cold that you can pour it like water. Fire needs air to burn and space has none, so the tower brings its own.'],
         ['Fire water can', [-40, -75], [-270, -80], 1, 'Fire water can: this holds the stuff that burns. The cold air gets down to the bottom through a pipe that runs right through the middle of this can.'],
         ['Little wings', [-85, -185, -85], [-270, -330], 9, 'Little wings: they keep the tower pointing the right way while it is still down in the air.'],
+        ['Splash stoppers', [-62, -59], [-270, -20], 1, 'Splash stoppers: rings inside the cans. Without them, what is in the cans would run up the walls and throw the tower around when it turns.'],
+        ['Pipe cover', [-40, 100, -72], [-270, 130], 1, 'Pipe cover: pipes and power lines cannot go through the cans, so they run up the outside under this long cover.'],
+        ['Thing it carries', [0, 335], [-175, 400], 5, 'Thing it carries: this small box is the only part that is meant to stay in space. Everything under it is there just to get it going fast enough.', 'split'],
+        ['Top cover', [55, 365], [175, 405], 5, 'Top cover: it keeps the wind off the thing it carries. High up, where the air is too thin to matter, it comes off in two halves so there is less to lift.', 'split'],
+        ['Thinking box', [22, 303], [185, 330], 5, 'Thinking box: it feels which way the tower is pointing and how fast it is going, and tells the fire rooms where to point. No one is steering.', 'split'],
+        ['Little side jets', [82, 285], [190, 285], 5, 'Little side jets: they push out small puffs of air to turn the second part when its fire is off.', 'split'],
+        ['Small cans', [-40, 230], [-180, 245], 5, 'Small cans: the second part has its own fire water and cold air. It needs much less, because by now it is light, high up and already going fast.', 'split'],
+        ['Wide bell', [30, 130], [185, 120], 5, 'Wide bell: this bell is much wider than one you would use near the ground. Up high there is almost no air pushing back, so the fire can spread out more and push a little harder.', 'split'],
+        ['Push-apart sticks', [66, 160], [190, 175], 5, 'Push-apart sticks: when the hooks let go, these push the two parts away from each other, so the second part can light without burning the first.', 'split'],
+        ['Empty ring', [-78, 140], [-185, 140], 5, 'Empty ring: the bell of the second part sits inside it. This is where the tower comes apart.', 'split'],
+        ['Push frame', [30, -188, 30], [175, -125], 2, 'Push frame: all the push from the fire room goes up through these bars into the walls of the tower.', 'eng'],
+        ['Strong air balls', [56, -150, -22], [-175, -118], 2, 'Strong air balls: they hold air pressed very tight. It is let into the tops of the cans as they empty, so the thin can walls do not fold in.', 'eng'],
+        ['Pointing joint', [0, -207], [175, -190], 4, 'Pointing joint: the fire room hangs from this, so it can swing a little in any direction.', 'eng'],
+        ['Pointing pushers', [50, -218], [178, -220], 4, 'Pointing pushers: two arms that get longer and shorter to swing the bell. The pipes to the fire room have to bend a little when they do.', 'eng'],
         ['Small fire', [0, -164], [-175, -140], 2, 'Small fire: a little fire water and cold air are burned here, away from the big fire, just to make hot air that turns the middle wheel.', 'eng'],
         ['Cold air wheel', [-34, -187], [-175, -185], 2, 'Cold air wheel: it pushes the cold air into the top of the fire room.', 'eng'],
         ['Fire water wheel', [34, -187], [175, -150], 2, 'Fire water wheel: it pushes the fire water down the outside pipe. All three wheels sit on one stick, so the middle one turns the other two.', 'eng'],
@@ -1371,9 +1879,82 @@
               ['Middle wheel', 'turbine'], ['Plate with holes', 'injector'], ['Fire room', 'combustion chamber'],
               ['Small opening', 'throat'], ['Bell', 'nozzle'], ['Fire water inside the walls', 'regenerative cooling'], ['Little wings', 'fins']],
       fine: 'This is one common way to build one. Real towers come in many kinds, and some bring the first part back down and land it to use again. Here everything goes back together by itself so you can keep watching.'
+    },
+    dish: {
+      title: 'Plate Washing Box', tsub: 'what people call a dishwasher',
+      sub: 'The box under the kitchen table top that washes plates and cups by throwing hot water at them.',
+      corner: 'It uses the same small pool of water over and over',
+      build: buildDish, tall: true, cam: { cx: 0, cy: 10, hw: 500, hh: 505, az: -0.42, el: 0.2 }, cutMax: 345, pane: [840, 980],
+      fuelLabel: 'How fast it goes through the wash', barLabel: 'How far along it is', barLo: 'start', barHi: 'done',
+      bar: function (f) { return 0; },
+      steps: [
+        ['The whole thing', 'This box does not fill up with water. It lets in only enough to fill a small pool in the floor, heats it, and then throws that same water at the plates over and over, catching the food each time it comes back down. Then it sends the food water away, does it all again with clean water, and dries what is left with heat. Watch the words in the corner to see what it is doing. Press a step to look closer.'],
+        ['1. Let water in', 'A door in the water pipe opens when it gets power, and clean water runs up a pipe behind the back wall. It comes into the wash room from high up and falls to the floor, where it runs down into the pool. The box does not count the water. It just opens the door for a set time, and a floating ball is there to cut the power if the water ever gets too high.',
+          { key: 'fill', mode: 'fill', cam: { cx: -170, cy: -150, hw: 210, hh: 310 } }],
+        ['2. Throw it around', 'A pusher under the floor takes water from the pool and pushes it up into the turning arms. The holes in the arms point up and a little to one side, and it is that sideways push that makes the arms turn. Nothing else turns them. The pusher is not strong enough to run all the arms at once, so a small part under the floor sends the water to the bottom arm for a while, then to the upper ones.',
+          { key: 'wash', mode: 'wash', cam: { cx: 0, cy: 0, hw: 340, hh: 450 } }],
+        ['3. Catch the food', 'All the water falls back to the floor and runs down toward the middle, carrying the food with it. Before it can get back to the pusher it has to go through a flat plate with holes, and then a fine net. Big pieces stay on the plate. Small ones stay in the net. If the box stops cleaning well, this is the first thing to pull out and wash.',
+          { key: 'filter', mode: 'filter', cam: { cx: -10, cy: -355, hw: 200, hh: 115 } }],
+        ['4. Send it away', 'When the washing is done, the pool is full of food water. A second, smaller pusher sends it out through a long soft pipe. That pipe goes up high behind the back wall before it goes down and away. If it did not, bad water from the kitchen pipes could run back down into the box.',
+          { key: 'drain', mode: 'drain', cam: { cx: -110, cy: -60, hw: 270, hh: 420 } }],
+        ['5. Dry', 'After the last water is gone, the heat ring on the floor gets hot. The same ring warmed the wash water earlier. Now it heats the air, the water left on the plates turns into wet air, and the wet air leaves through a small way out at the top of the door. Things that are not made of glass or baked earth often stay wet, because they do not hold heat well.',
+          { key: 'dry', mode: 'dry', cam: { cx: 60, cy: 60, hw: 320, hh: 430 } }]
+      ],
+      tags: [
+        ['Table top', [-250, 440], [-430, 440], 0, 'Table top: the box slides in under this. Most of them are made to fit a space of one size, so a new one fits where the old one was.'],
+        ['Top holder', [-200, 110], [-440, 180], 0, 'Top holder: for cups, glasses and small bowls. It rolls out on slide bars. Things up here are farther from the heat ring.'],
+        ['Bottom holder', [-230, -190], [-440, -140], 0, 'Bottom holder: for plates, pots and the knife cup. It rolls out on small wheels onto the open door.'],
+        ['Water arms', [-150, -284], [-440, -280], 0, 'Water arms: three of them. They turn and throw water up at everything from below, and down from the top.'],
+        ['Pool', [-40, -350], [-330, -470], 0, 'Pool: the small low place in the floor where all the water gathers. The box uses only this much water at a time.'],
+        ['Push buttons', [285, 402, -150], [430, 440], 0, 'Push buttons: for picking how long and how hot the wash is. Behind them is a small thinking board that opens and closes everything at the right time.'],
+        ['Door', [300, 180], [445, 200], 0, 'Door: it is on a turn stick at the bottom and falls open to lie flat, so the bottom holder can roll out onto it.'],
+        ['Soap cup', [272, 50], [445, 60], 0, 'Soap cup: it holds the soap shut inside the door until the wash room is full of flying water, and then springs open.'],
+        ['Feet', [270, -436, 270], [430, -470], 0, 'Feet: they turn to go up and down, so the box can be made to sit level. If it leans, the water does not all run to the pool.'],
+
+        ['Water door', [-249, -397, 61], [-340, -445], 1, 'Water door: it is held shut by the push of the house water. A small power pull opens it. With no power, it cannot open.', 'fill'],
+        ['Filling pipe', [-291, -100, 40], [-365, -80], 1, 'Filling pipe: it carries clean water up behind the back wall.', 'fill'],
+        ['High way in', [-275, 102, 40], [-340, 135], 1, 'High way in: the water comes in above the highest the pool could ever reach, and falls in through open air. That way food water can never be pulled back into the clean water pipes.', 'fill'],
+        ['Too-full ball', [-150, -292, 150], [-60, -225], 1, 'Too-full ball: it floats. If something goes wrong and the water gets too high, it lifts and cuts the power to the water door.', 'fill'],
+        ['Leaning floor', [-180, -308], [-70, -300], 1, 'Leaning floor: it leans down toward the middle from every side, so all the water runs to the pool.', 'fill'],
+        ['Pool', [-40, -350], [-50, -445], 1, 'Pool: this fills first. When it is full, the washing can start.', 'fill'],
+
+        ['Top thrower', [0, 390], [-120, 440], 2, 'Top thrower: a small arm in the roof that throws water down into the cups and glasses.', 'wash'],
+        ['Back pipe', [-272, 200], [-300, 250], 2, 'Back pipe: it carries water up the back wall to the middle arm and the top thrower.', 'wash'],
+        ['Middle arm', [-150, 30], [-300, -20], 2, 'Middle arm: it hangs under the top holder. It throws water up at the cups and also down onto the plates.', 'wash'],
+        ['Cups, face down', [-120, 110, -150], [300, 255], 2, 'Cups, face down: anything shaped like a cup has to face down, or it fills with food water and stays full. Light ones get turned over by the flying water anyway.', 'wash'],
+        ['Soap cup', [272, 50], [300, 110], 2, 'Soap cup: when its cover springs open, the soap falls out and the flying water carries it everywhere.', 'wash'],
+        ['Plates', [-100, -110, -110], [300, -60], 2, 'Plates: they stand on edge, facing the middle, with space between them. Water cannot clean a side it cannot reach.', 'wash'],
+        ['Knife cup', [210, -150, 175], [305, -215], 2, 'Knife cup: spoons go in with the eating end up, so the water reaches it. The spoon that comes out with food still on it was lying inside another spoon. Sharp knives go point down, for the sake of your hand.', 'wash'],
+        ['Bottom arm', [150, -284], [290, -330], 2, 'Bottom arm: the biggest one. It has to throw water up past the plates, so nothing tall should hang down and stop it turning.', 'wash'],
+        ['Arm picker', [-40, -400], [120, -450], 2, 'Arm picker: it sends the water to the bottom arm for a while, and then to the upper arms. Taking turns lets a small pusher do the work of a big one.', 'wash'],
+        ['Water pusher', [-140, -388], [-270, -440], 2, 'Water pusher: a wheel with wings that turns very fast and throws the water outward into the pipes. Behind it is the power turner that runs it.', 'wash'],
+
+        ['Flat catcher', [52, -315], [150, -275], 3, 'Flat catcher: a plate with holes that covers the pool. Bones, seeds and paper stay on top of it.', 'filter'],
+        ['Fine net', [29, -345], [165, -340], 3, 'Fine net: a net with holes almost too small to see. Water has to go through it to get to the pusher, so the same food is not thrown back onto the plates.', 'filter'],
+        ['Middle pipe', [0, -340], [80, -440], 3, 'Middle pipe: clean water from the pusher comes back up through the middle of the pool to the bottom arm.', 'filter'],
+        ['Pool', [-52, -360], [-165, -285], 3, 'Pool: the water gathers here between trips through the arms.', 'filter'],
+        ['Way to the pusher', [-96, -368], [-170, -440], 3, 'Way to the pusher: water that has been through the net goes out here.', 'filter'],
+
+        ['Emptying pusher', [125, -394], [110, -455], 4, 'Emptying pusher: a small wheel with wings, used only for sending the food water away.', 'drain'],
+        ['One-way flap', [61, -406, -10], [-60, -455], 4, 'One-way flap: it lets water go out and stops it from running back in.', 'drain'],
+        ['High turn', [-291, 345, -25], [-330, 405], 4, 'High turn: the pipe goes up to here before it goes down. Water in the kitchen pipes would have to climb this high to get back into the box, and it cannot.', 'drain'],
+        ['Way out', [-340, -392, -40], [-345, -445], 4, 'Way out: from here the food water joins the pipe under the kitchen water bowl.', 'drain'],
+
+        ['Heat ring', [150, -299, 140], [-150, -420], 5, 'Heat ring: a bar that gets very hot when power runs through it. Light things that fall onto it can go soft, which is why some say "top holder only".', 'dry'],
+        ['Air way out', [267, 337], [330, 290], 5, 'Air way out: wet air leaves the wash room here and comes out at the top of the door.', 'dry'],
+        ['Door hook', [276, 408], [220, 460], 5, 'Door hook: it holds the door shut tight against a soft ring, and tells the thinking board that the door is closed. The box will not start with it open.', 'dry'],
+        ['Thinking board', [285, 372, 60], [350, 400], 5, 'Thinking board: it turns on the water door, the pushers and the heat ring, one after another, and feels how hot the water is.', 'dry']
+      ],
+      loose: [],
+      gloss: [['Plate washing box', 'dishwasher'], ['Wash room', 'tub'], ['Holders', 'racks'], ['Water arms', 'spray arms'], ['Pool', 'sump'],
+              ['Water door', 'inlet valve'], ['High way in', 'air gap'], ['Too-full ball', 'float switch'], ['Water pusher', 'wash pump'], ['Power turner', 'motor'],
+              ['Arm picker', 'diverter valve'], ['Flat catcher, fine net', 'coarse and fine filters'], ['Emptying pusher', 'drain pump'], ['One-way flap', 'check valve'],
+              ['High turn', 'high loop'], ['Heat ring', 'heating element'], ['Soap cup', 'detergent dispenser'], ['Air way out', 'vent'], ['Door hook', 'latch'],
+              ['Thinking board', 'control board'], ['Knife cup', 'cutlery basket']],
+      fine: 'The outside box, the wash room and the door are cut open. The holders and what is in them are left whole. Different makers put the pushers and pipes in different places, and many newer boxes heat the water without a ring on the floor.'
     }
   };
-  var ORDER = ['jet', 'steam', 'rocket'];
+  var ORDER = ['jet', 'steam', 'rocket', 'dish'];
   function inst(id) {
     var d = DEFS[id];
     if (!d.m) {
@@ -1484,6 +2065,7 @@
     var vis = [], i, j, it;
     tags.forEach(function (t) {
       if (t.el.hidden) return;
+      if (t.src) t.P.copy(t.P0).add(t.src).sub(t.src0);
       var q = toScreen(t.Q);
       t.sx = q[0]; t.sy = q[1];
       if (!t.w) { t.w = 90; t.h = 20; }
@@ -1584,6 +2166,7 @@
     // name tags
     tags.forEach(function (t) { t.el.remove(); });
     leads.textContent = '';
+    var seen = {};
     tags = cur.tags.map(function (d) {
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'chip'; b.textContent = d[0]; b.setAttribute('aria-pressed', 'false');
@@ -1594,7 +2177,12 @@
       leads.appendChild(ln); leads.appendChild(dot);
       var t = { el: b, ln: ln, dot: dot, step: d[3], note: d[4], key: d[5] || null,
                 P: new THREE.Vector3(d[1][0], d[1][1], d[1][2] || 0), Q: new THREE.Vector3(d[2][0], d[2][1], 0) };
-      if (cur.m.tagP) cur.m.tagP[d[0]] = t.P;
+      // a name can show up in more than one view; when the machine moves the first one, the others move the same way
+      t.P0 = t.P.clone();
+      if (cur.m.tagP) {
+        if (seen[d[0]]) { t.src = seen[d[0]].P; t.src0 = seen[d[0]].P0; }
+        else { cur.m.tagP[d[0]] = t.P; seen[d[0]] = t; }
+      }
       b.addEventListener('click', function () {
         tags.forEach(function (o) { if (o.ln) o.el.setAttribute('aria-pressed', String(o === t)); });
         stepText.textContent = t.note;
@@ -1685,6 +2273,7 @@
     camNow.hw += (tc.hw - camNow.hw) * kk; camNow.hh += (tc.hh - camNow.hh) * kk;
     var cap = cur.m.caption || cur.corner;
     if (cap !== lastCap) { lastCap = cap; $('corner').innerHTML = cap; }
+    if (cur.m.progress !== undefined) push.style.width = Math.round(cur.m.progress * 100) + '%';
     placeCamera();
     placeTags();
     drawFrame();
