@@ -121,6 +121,12 @@
   button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
   button:focus-visible, input:focus-visible { outline: 3px solid var(--fire); outline-offset: 3px; }
   #stepText { margin: 0; font-size: 21px; max-width: 65ch; min-height: 4.1em; }
+  .parts { display: flex; flex-direction: column; gap: 12px; }
+  .parts h2 { font-family: var(--display); font-weight: 400; font-size: 18px; letter-spacing: 0.05em; text-transform: uppercase; margin: 0; }
+  dl.notes { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px 28px; }
+  dl.notes div { display: block; }
+  dl.notes dd { color: var(--ink); font-size: 17px; line-height: 1.25; }
+  dl.notes dd::before { content: none; }
 
   .knobs { display: flex; flex-wrap: wrap; gap: 14px 32px; align-items: center; }
   .knob { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 230px; max-width: 360px; }
@@ -198,6 +204,11 @@
       </div>
     </section>
 
+    <section class="parts">
+      <h2>Every part named in this view</h2>
+      <dl class="notes" id="notes"></dl>
+    </section>
+
     <footer>
       <h2>The big words, if you want them</h2>
       <dl id="gloss"></dl>
@@ -245,6 +256,8 @@
     ring:  new THREE.LineBasicMaterial({ clippingPlanes: clips }),
     flame: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
     flame2: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }),
+    flameC: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, clippingPlanes: clips }),
+    flame2C: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, clippingPlanes: clips }),
     air:   new THREE.LineBasicMaterial({ vertexColors: true, clippingPlanes: clips }),
     dots:  new THREE.LineBasicMaterial({ vertexColors: true }),
     pane:  new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.06, depthWrite: false, side: THREE.DoubleSide }),
@@ -307,6 +320,7 @@
     mat.body.color.set(cssVar('--fill')); mat.metal.color.set(cssVar('--metal')); mat.metalC.color.set(cssVar('--metal'));
     mat.ring.color.copy(col.ink); mat.pane.color.copy(col.ink); mat.paneEdge.color.copy(col.ink);
     mat.flame.color.copy(col.fire); mat.flame2.color.copy(col.fire);
+    mat.flameC.color.copy(col.fire); mat.flame2C.color.copy(col.fire);
     post.uniforms.ink.value.copy(col.ink); post.uniforms.fill.value.set(cssVar('--fill'));
     themeFns.forEach(function (fn) { fn(); });
     thumbsDirty = true;
@@ -400,126 +414,285 @@
       flush: function () { geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true; }
     };
   }
+  // a straight round stick between two points, and a bent pipe through several points
+  var UPV = new THREE.Vector3(0, 1, 0);
+  function tubeBetween(parent, a, b, r, m) {
+    var d = new THREE.Vector3().subVectors(b, a), len = d.length();
+    var me = addWhole(parent, new THREE.CylinderGeometry(r, r, len, 12), m || mat.metal);
+    me.position.copy(a).add(b).multiplyScalar(0.5);
+    me.quaternion.setFromUnitVectors(UPV, d.normalize());
+    return me;
+  }
+  function pipeThrough(parent, pts, r, m) {
+    var c = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.25);
+    return addWhole(parent, new THREE.TubeGeometry(c, pts.length * 10, r, 8, false), m || mat.metal);
+  }
+  // many small wings around a middle line, drawn as one thing so hundreds of them stay cheap.
+  // rows: [{y: place along the line, hub, tip, w: front-to-back size, th, pitch, n, raw}]
+  var UNIT = new THREE.BoxGeometry(1, 1, 1);
+  function bladeRing(parent, geo, rows, cut, colorMat) {
+    var count = 0, ims = [], m = new THREE.Matrix4(), a = new THREE.Matrix4(), k = 0;
+    rows.forEach(function (r) { count += r.n; });
+    function mk(material, nmat) {
+      var im = new THREE.InstancedMesh(geo, material, count);
+      im.userData.n = nmat; im.frustumCulled = false; parent.add(im); ims.push(im);
+    }
+    if (cut) { mk(colorMat || mat.caseM, nClip); mk(mat.cap, nCap); } else mk(colorMat || mat.metal, nFree);
+    rows.forEach(function (r) {
+      for (var i = 0; i < r.n; i++) {
+        m.makeRotationY((r.phase || 0) + i * Math.PI * 2 / r.n);
+        if (r.raw) m.multiply(a.makeTranslation(r.hub, r.y, 0));
+        else {
+          m.multiply(a.makeTranslation((r.hub + r.tip) / 2, r.y, 0));
+          m.multiply(a.makeRotationX(r.pitch || 0));
+          m.multiply(a.makeScale(r.tip - r.hub, r.w, r.th));
+        }
+        for (var j = 0; j < ims.length; j++) ims[j].setMatrixAt(k, m);
+        k++;
+      }
+    });
+    ims.forEach(function (im) { im.instanceMatrix.needsUpdate = true; });
+  }
+  // one long wing that is turned more at the root than at the end, like a real one
+  function twistedBlade(len, w0, w1, th, p0, p1, n) {
+    var rings = [], pos = [], i, j;
+    for (i = 0; i <= n; i++) {
+      var t = i / n, w = (w0 + (w1 - w0) * t) / 2, h = th / 2, p = p0 + (p1 - p0) * t, c = Math.cos(p), s = Math.sin(p);
+      rings.push([[w, h], [-w, h], [-w, -h], [w, -h]].map(function (q) { return [t * len, q[0] * c - q[1] * s, q[0] * s + q[1] * c]; }));
+    }
+    function tri(A, B, C) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]); }
+    for (i = 0; i < n; i++) for (j = 0; j < 4; j++) {
+      var A = rings[i][j], B = rings[i + 1][j], C = rings[i][(j + 1) % 4], D = rings[i + 1][(j + 1) % 4];
+      tri(A, C, B); tri(B, C, D);
+    }
+    var f = rings[0], e = rings[n];
+    tri(f[0], f[2], f[1]); tri(f[0], f[3], f[2]); tri(e[0], e[1], e[2]); tri(e[0], e[2], e[3]);
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    g.computeVertexNormals();
+    return g;
+  }
   function rnd(a, b) { return a + Math.random() * (b - a); }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
   // =====================================================================
-  // machine 1: fire wind pusher (jet engine)
+  // machine 1: fire wind pusher (jet engine) with all of its real parts
   // =====================================================================
   function buildJet() {
     var CX = 520, root = new THREE.Group(), eng = new THREE.Group();
     eng.rotation.z = -Math.PI / 2; // spun shapes use their own "up" as the machine's long way
     root.add(eng);
+    function Wv(x, y, z) { return new THREE.Vector3(x - CX, y, z || 0); }
+    function LG(pts, seg) { return new THREE.LatheGeometry(prof(pts, CX, true), seg || 72); }
+    function LGrev(pts, seg) { var v = prof(pts, CX, true); v.reverse(); return new THREE.LatheGeometry(v, seg || 72); }
+    function LGopen(pts, seg) { return new THREE.LatheGeometry(prof(pts, CX, false), seg || 48); }
+    function torus(x, R, t) { var g = new THREE.TorusGeometry(R, t, 8, 48); g.rotateX(Math.PI / 2); g.translate(0, x - CX, 0); return g; }
+    function shell(tbl, t) { return tbl.concat(tbl.slice().reverse().map(function (p) { return [p[0], p[1] - t]; })); }
+
+    // the path the air takes through the hot middle: outside wall and inside wall, [how far back, how far out]
+    var OUT = [[230,74],[300,74],[305,74],[350,70],[385,62],[520,47],[540,62],[548,64],[650,64],[652,58],[672,58],[680,60],[770,76],[800,74],[865,56]];
+    var HUB = [[238,36],[278,38],[300,42],[352,46],[385,34],[520,39],[540,30],[650,30],[652,40],[672,40],[680,42],[772,44],[800,42],[860,20],[905,0]];
+    var COWL = [[300,80],[315,90],[340,96],[450,100],[600,98],[720,92],[800,80],[865,60]];
+    var NIN = [[160,150],[230,150],[300,148],[500,140],[640,128],[708,120]];
+    function row(x, w, th, pitch, n) { return { y: x + w / 2 - CX, hub: at(HUB, x + w / 2), tip: at(OUT, x + w / 2) - 1.5, w: w, th: th, pitch: pitch, n: n }; }
+
+    // ---------------- outside cover: hollow, with a strong ring around the big turner ----------------
+    addCut(eng, LG(chaikin(chaikin([[150,152],[160,170],[200,182],[300,190],[450,188],[520,177],[520,139],[500,140],[300,148],[230,150],[160,150]]))));
+    addCut(eng, LGrev(chaikin([[205,160],[205,174],[300,184],[450,182],[512,172],[512,145],[500,146],[300,154],[232,156]])));
+    addCut(eng, LG([[232,157],[284,157],[284,166],[232,166]]), mat.metalC);
+    // rows of bent wings that throw air forward when the back cover slides away
+    [[530,170],[542,168],[554,166],[566,164]].forEach(function (c) {
+      addCut(eng, LG([[c[0],144],[c[0]-6,c[1]],[c[0]-3.5,c[1]],[c[0]+2.5,144]], 56), mat.metalC);
+    });
+    // back part of the cover, which can slide back, with its blocking doors
+    var sleeve = new THREE.Group();
+    eng.add(sleeve);
+    addCut(sleeve, LG([[522,177],[600,165],[700,126],[708,120],[640,128],[522,139],[522,142],[640,131],[672,131],[600,162],[522,174]]));
+    var hinges = [];
+    for (var d = 0; d < 14; d++) {
+      var around = new THREE.Group(), hinge = new THREE.Group();
+      around.rotation.y = d * Math.PI * 2 / 14;
+      hinge.position.set(132, 575 - CX, 0);
+      addCut(hinge, new THREE.BoxGeometry(2, 44, 52), mat.metalC).position.set(-1.5, 22, 0);
+      around.add(hinge); sleeve.add(around); hinges.push(hinge);
+    }
+
+    // ---------------- hot middle: thin wall around the air path, and a thin cover outside that ----------------
+    addCut(eng, LG(shell(OUT.filter(function (p) { return p[0] >= 300; }).map(function (p) { return [p[0], p[1] + 3]; }), 3)));
+    addCut(eng, LG(shell(COWL, 2.5)));
+    addCut(eng, LG([[354,46],[383,34],[383,24],[354,24]]));                               // still middle piece behind the first pressers
+    addCut(eng, LG([[522,39],[540,30],[650,30],[650,27],[540,27],[522,35]]));             // inside wall of the wide part and fire room
+    addCut(eng, LG([[646,56],[552,56],[550,54],[550,38],[552,36],[646,36],[646,37.5],[553,37.5],[551.5,39],[551.5,53],[553,54.5],[646,54.5]]), mat.metalC); // fire room walls
+    addCut(eng, LG([[776,44],[800,42],[860,20],[905,0],[896,0],[858,17],[800,39],[779,41]]));   // pointed end
+    addCut(eng, LG([[784,41],[788,41],[788,10],[784,10]]));                               // back holder
+    addCut(eng, LG([[356,24],[364,13],[369,13],[361,24]]));                               // front holder
+    addCut(eng, torus(366, 10, 3), mat.metalC);
+    addCut(eng, torus(786, 9.5, 2.5), mat.metalC);
+    [392, 406.5, 421].forEach(function (x) { addCut(eng, torus(x, at(OUT, x) + 7, 1.6), mat.metalC); });  // wing turner rings
+    addCut(eng, torus(548, 72, 3), mat.metalC);                                           // fire water ring
+
+    // still wings: every row that does not turn
+    var still = [];
+    [316, 331, 346].forEach(function (x) { still.push(row(x, 5, 1.6, -0.4, 30)); });
+    still.push(row(360, 20, 4, 0, 8));
+    for (var i = 0; i < 9; i++) still.push(row(396 + i * 14.5, 4.5, 1.4, -0.45, 30));
+    still.push(row(652, 7, 2, 0.6, 30));
+    for (i = 0; i < 4; i++) still.push(row(682 + i * 22, 7, 2, 0.55, 30));
+    still.push(row(777, 18, 4, 0, 8));
+    still.push({ y: 327 - CX, hub: 93, tip: 147, w: 18, th: 2.5, pitch: 0.2, n: 36 });   // the big still wings behind the turner
+    still.push({ y: 548 - CX, hub: 53, tip: 70, w: 3, th: 3, pitch: 0, n: 16 });         // fire water throwers
+    bladeRing(eng, UNIT, still, true, mat.metalC);
+
+    // ---------------- inner stick: nose, big turner, first pressers, later hot wheels ----------------
+    var lp = new THREE.Group(), hp = new THREE.Group();
+    eng.add(lp); eng.add(hp);
+    var NOSE = [[178,0],[184,12],[198,24],[218,32],[238,36]];
+    addWhole(lp, LGopen(NOSE.concat([[238,0]])), mat.body);
+    var swirl = [];
+    for (i = 0; i <= 8; i++) { var sx = 186 + i * 5.6, sr = at(NOSE, sx) + 1, sa = i * 0.3; swirl.push(new THREE.Vector3(sr * Math.cos(sa), sx - CX, sr * Math.sin(sa))); }
+    pipeThrough(lp, swirl, 1.3, mat.metal);
+    addWhole(lp, LGopen([[238,0],[238,36],[278,38],[300,42],[352,46],[354,12],[354,0]]), mat.body);
+    addWhole(lp, new THREE.CylinderGeometry(7, 7, 436, 16), mat.body).position.y = 572 - CX;
+    addWhole(lp, LGopen([[678,0],[680,42],[772,44],[776,0]]), mat.body);
+    bladeRing(lp, twistedBlade(110, 36, 30, 3.5, 0.35, 0.95, 8), [{ raw: true, y: 258 - CX, hub: 36, n: 22 }], false, mat.metal);
+    var lpRows = [];
+    [308, 323, 338].forEach(function (x) { lpRows.push(row(x, 7, 1.6, 0.5, 28)); });
+    for (i = 0; i < 4; i++) lpRows.push(row(692 + i * 22, 8, 2, -0.6, 34));
+    bladeRing(lp, UNIT, lpRows, false, mat.metal);
+
+    // ---------------- outer stick: main pressers and the first hot wheel (cut open to show the inner stick) ----------------
+    addCut(hp, LG([[383,20],[385,34],[520,39],[524,22],[650,22],[654,40],[672,40],[674,20],[674,16],[383,16]]));
+    var hpRows = [];
+    for (i = 0; i < 9; i++) hpRows.push(row(388 + i * 14.5, 7, 1.4, 0.55, 30));
+    hpRows.push(row(662, 8, 2, -0.6, 36));
+    bladeRing(hp, UNIT, hpRows, false, mat.metal);
+
+    // ---------------- fire ----------------
+    function flameGeo(mid, h) {
+      var top = [], bot = [];
+      for (var q = 0; q <= 8; q++) {
+        var t = q / 8, w = h * Math.pow(1 - t, 0.6);
+        top.push([90 * t, mid + w]);
+        if (q < 8 && q > 0) bot.unshift([90 * t, mid - w]);
+      }
+      bot.push([0, mid - h]);
+      return new THREE.LatheGeometry(prof(top.concat(bot), 0, true), 40);
+    }
+    var flameA = new THREE.Mesh(flameGeo(46, 7), mat.flameC), flameB = new THREE.Mesh(flameGeo(46, 4), mat.flame2C);
+    flameA.position.y = flameB.position.y = 556 - CX;
+    eng.add(flameA); eng.add(flameB);
+    tubeBetween(root, Wv(575, 68), Wv(575, 52), 2.2);                                     // fire starters
+    tubeBetween(root, Wv(575, -68, -8), Wv(575, -52, -6), 2.2);
+
+    // ---------------- helper box and the things on it, in the space under the hot middle ----------------
+    function boxAt(x0, x1, y0, y1, z0, z1, m) {
+      var b = addWhole(root, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      b.position.set((x0 + x1) / 2 - CX, (y0 + y1) / 2, (z0 + z1) / 2);
+      return b;
+    }
+    boxAt(395, 485, -94, -70, -26, 26, mat.body);
+    tubeBetween(root, Wv(367, -82, -13), Wv(395, -82, -13), 9);                           // starter
+    tubeBetween(root, Wv(485, -82, 12), Wv(515, -82, 12), 10);                            // power maker
+    tubeBetween(root, Wv(485, -84, -14), Wv(505, -84, -14), 7);                           // fire water pusher
+    tubeBetween(root, Wv(522, -78, -30), Wv(560, -78, -30), 10, mat.body);                // can of slide stuff
+    boxAt(525, 545, -87, -73, 8, 24, mat.metal);                                          // box that decides how much fire water
+    tubeBetween(root, Wv(383, -20), Wv(410, -70), 2.2);                                   // thin up-down stick from the outer stick
+    tubeBetween(root, Wv(385, 72), Wv(425, 68), 1.8);                                     // arm that pulls the wing turner rings
+    tubeBetween(root, Wv(535, -73, 16), Wv(548, -70, 4), 2);
+    // pipes: fire water down from the wing, air for the people up to the wing, warm air forward to the front edge
+    pipeThrough(root, [Wv(610,172), Wv(610,110), Wv(606,92,-8), Wv(590,62,-68), Wv(560,0,-93), Wv(525,-62,-66), Wv(497,-84,-16)], 2.5);
+    pipeThrough(root, [Wv(480,56), Wv(482,80), Wv(500,92), Wv(545,96), Wv(560,120), Wv(566,178)], 5, mat.body);
+    pipeThrough(root, [Wv(440,60), Wv(437,85), Wv(400,94), Wv(345,95), Wv(329,110), Wv(328,150), Wv(318,168), Wv(260,170), Wv(212,168)], 2.5);
+
+    // ---------------- thin walls that split the air, the holding arm, and a piece of wing ----------------
+    function plate(pts, depth, z0) {
+      var s = new THREE.Shape();
+      pts.forEach(function (p, q) { if (q) s.lineTo(p[0] - CX, p[1]); else s.moveTo(p[0] - CX, p[1]); });
+      s.lineTo(pts[0][0] - CX, pts[0][1]);
+      var g = new THREE.ExtrudeGeometry(s, { depth: depth, bevelEnabled: false });
+      g.translate(0, 0, z0);
+      return addCut(root, g);
+    }
+    plate([[440,101],[640,97],[640,127],[440,142]], 2, -11);
+    plate([[440,101],[640,97],[640,127],[440,142]], 2, 9);
+    plate([[330,189],[520,180],[640,152],[720,160],[780,252],[330,252]], 2, -15);   // the holding arm is a thin box, so only its two sides are drawn
+    plate([[330,189],[520,180],[640,152],[720,160],[780,252],[330,252]], 2, 13);
+    var wing = addCut(root, new THREE.BoxGeometry(520, 12, 220));
+    wing.position.set(640 - CX, 258, -90);
+
+    // ---------------- air ----------------
     var T = {
-      coreOutWall: [[300,74],[320,70],[520,44],[535,58],[645,58],[660,50],[760,70],[865,46]],
-      hub:         [[278,36],[312,12],[660,12],[760,30],[905,0]],
-      bypIn:  [[-60,98],[230,78],[300,84],[340,97],[450,102],[600,100],[720,94],[800,80],[865,57],[1250,70]],
+      bypIn:  [[-60,98],[230,78],[300,83],[315,93],[340,99],[450,103],[600,101],[720,95],[800,83],[865,63],[1250,74]],
       bypOut: [[-60,185],[230,146],[300,144],[500,136],[640,124],[705,114],[1250,128]],
-      corIn:  [[-60,0],[178,0],[238,36],[278,36],[312,15],[660,15],[760,33],[905,2],[1250,2]],
-      corOut: [[-60,94],[230,74],[300,71],[320,67],[520,41],[535,55],[645,55],[660,47],[760,67],[865,43],[1250,62]],
+      corIn:  [[-60,0],[178,0],[238,38],[278,40],[300,44],[352,48],[385,36],[520,41],[540,32],[552,39],[646,39],[652,42],[672,42],[680,44],[772,46],[800,44],[860,22],[905,2],[1250,2]],
+      corOut: [[-60,94],[230,72],[300,72],[350,68],[385,60],[520,45],[540,56],[552,53],[646,53],[652,56],[672,56],[680,58],[770,74],[800,72],[865,54],[1250,70]],
       corV:   [[-60,90],[300,110],[520,60],[540,70],[650,160],[760,200],[865,420],[1250,420]],
       bypV:   [[-60,90],[238,100],[300,170],[705,230],[1250,230]]
     };
-    var nacelle = [[150,152],[160,170],[200,182],[300,190],[450,188],[600,165],[700,126],[708,120],
-                   [640,128],[500,140],[300,148],[230,150],[160,150]];
-    var cowl = [[300,77],[315,88],[340,93],[450,98],[600,96],[720,90],[800,76],[865,50],
-                [865,46],[760,70],[660,50],[645,58],[535,58],[520,44],[320,70],[300,74]];
-    [chaikin(chaikin(nacelle)), chaikin(cowl)].forEach(function (pts) {
-      addCut(eng, new THREE.LatheGeometry(prof(pts, CX, true), 72));
-    });
-    [[152,152],[300,190.5],[600,165.5],[707,121],[301,76],[864,49]].forEach(function (p) {
-      var pts = [];
-      for (var i = 0; i < 72; i++) { var a = i / 72 * Math.PI * 2; pts.push(new THREE.Vector3(p[1] * Math.cos(a), p[0] - CX, p[1] * Math.sin(a))); }
-      eng.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat.ring));
-    });
-    addWhole(eng, new THREE.LatheGeometry(prof([[278,0]].concat(T.hub), CX, false), 40), mat.body);
-    addWhole(eng, new THREE.LatheGeometry(prof([[178,0],[184,12],[198,24],[218,32],[238,36],[238,0]], CX, false), 40), mat.body);
-
-    var rotors = [{ x: 238, w: 40, tip: 146, hub: 34, n: 18, pitch: 0.6, th: 3 }];
-    [322, 356, 390, 424, 458, 492].forEach(function (x) {
-      rotors.push({ x: x, w: 14, tip: at(T.coreOutWall, x + 7) - 3, hub: 11, n: 16, pitch: 0.5, th: 2 });
-    });
-    [668, 700, 732].forEach(function (x) {
-      rotors.push({ x: x, w: 16, tip: at(T.coreOutWall, x + 8) - 3, hub: at(T.hub, x + 8) - 1, n: 18, pitch: -0.6, th: 2.5 });
-    });
-    rotors.forEach(function (r) {
-      var g = new THREE.Group();
-      g.position.y = r.x + r.w / 2 - CX;
-      var geo = new THREE.BoxGeometry(r.tip - r.hub, r.w * 0.9, r.th);
-      for (var i = 0; i < r.n; i++) {
-        var pivot = new THREE.Group();
-        pivot.rotation.y = i * Math.PI * 2 / r.n;
-        var m = addWhole(pivot, geo, mat.metal);
-        m.position.x = (r.tip + r.hub) / 2;
-        m.rotation.x = r.pitch;
-        g.add(pivot);
-      }
-      r.group = g;
-      eng.add(g);
-    });
-
-    function flameGeo(h) {
-      var top = [], bot = [];
-      for (var i = 0; i <= 8; i++) {
-        var t = i / 8, w = h * Math.pow(1 - t, 0.6);
-        top.push([90 * t, 36 + w]);
-        if (i < 8 && i > 0) bot.unshift([90 * t, 36 - w]);
-      }
-      bot.push([0, 36 - h]);
-      return new THREE.LatheGeometry(prof(top.concat(bot), 0, true), 40);
-    }
-    var flameA = new THREE.Mesh(flameGeo(15), mat.flame), flameB = new THREE.Mesh(flameGeo(8), mat.flame2);
-    flameA.position.y = flameB.position.y = 550 - CX;
-    eng.add(flameA); eng.add(flameB);
-
-    var pipe = addWhole(eng, new THREE.CylinderGeometry(2.6, 2.6, 56, 10), mat.metal);
-    pipe.rotation.z = Math.PI / 2;
-    pipe.position.set(-70, 556 - CX, 0);
-
-    var N = 460, NCORE = 140, parts = [], L = lineSet(root, N, mat.air);
+    var N = 460, NCORE = 150, parts = [], L = lineSet(root, N, mat.air);
     function spawn(p, anywhere) {
       p.x = anywhere ? -60 + Math.random() * 1310 : -60 - Math.random() * 40;
       p.u = 0.05 + Math.random() * 0.9;
       p.a = Math.random() * Math.PI * 2;
       p.j = 0.85 + Math.random() * 0.3;
-      p.v = 100;
+      p.v = 100; p.out = false;
     }
-    for (var i = 0; i < N; i++) { var p = { core: i < NCORE }; spawn(p, true); parts.push(p); }
-    function stepAir(dt) {
-      for (var i = 0; i < N; i++) {
-        var p = parts[i];
-        p.v = at(p.core ? T.corV : T.bypV, p.x) * S.f * p.j;
-        p.x += p.v * dt;
-        if (p.x > 1250) spawn(p, false);
-      }
-    }
+    for (i = 0; i < N; i++) { var p = { core: i < NCORE }; spawn(p, true); parts.push(p); }
     function laneR(p, x) {
       var a = at(p.core ? T.corIn : T.bypIn, x), b = at(p.core ? T.corOut : T.bypOut, x);
       return a + (b - a) * p.u;
     }
+    var rev = 0, revTo = 0, flameT = 0, tagP = {}, coverX;
+    function stepAir(dt) {
+      for (var q = 0; q < N; q++) {
+        var p = parts[q];
+        if (p.out) { p.t += dt; if (p.t > 0.65) spawn(p, false); continue; }
+        p.v = at(p.core ? T.corV : T.bypV, p.x) * S.f * p.j;
+        p.x += p.v * dt;
+        if (!p.core && rev > 0.6 && p.x > 592 + p.u * 30) { p.out = true; p.t = 0; p.ox = p.x; p.or = laneR(p, p.x); }
+        else if (p.x > 1250) spawn(p, false);
+      }
+    }
     function flicker() {
-      var len = (48 + 28 * S.f) / 90;
+      var len = (46 + 26 * S.f) / 90;
       flameA.scale.y = len * (0.9 + Math.random() * 0.2);
       flameB.scale.y = len * 0.6 * (0.85 + Math.random() * 0.3);
     }
+    function setRev() {
+      sleeve.position.y = 62 * rev;
+      for (var q = 0; q < hinges.length; q++) hinges[q].rotation.z = 0.1 + 1.1 * rev;
+      if (tagP['Sliding cover']) {
+        if (coverX === undefined) coverX = tagP['Sliding cover'].x;
+        tagP['Sliding cover'].x = coverX + 62 * rev;
+      }
+    }
     for (var k = 0; k < 300; k++) stepAir(0.033);
-    flicker();
-    var flameT = 0;
+    flicker(); setRev();
 
     return {
-      root: root,
+      root: root, tagP: tagP,
+      setMode: function (m) { revTo = m === 'rev' ? 1 : 0; },
       update: function (dt) {
-        rotors.forEach(function (r) { r.group.rotation.y += 2.5 * S.f * dt; });
+        lp.rotation.y += 2.2 * S.f * dt;
+        hp.rotation.y += 4.6 * S.f * dt;
+        rev += (revTo - rev) * Math.min(1, 3 * dt);
+        setRev();
         stepAir(dt);
         flameT += dt;
         if (flameT > 0.09) { flameT = 0; flicker(); }
       },
       draw: function () {
-        for (var i = 0; i < N; i++) {
-          var p = parts[i], len = Math.max(4, p.v * 0.05);
-          var c = Math.cos(p.a), s = Math.sin(p.a), r0 = laneR(p, p.x - len), r1 = laneR(p, p.x);
-          L.put(i, p.x - len - CX, r0 * c, r0 * s, p.x - CX, r1 * c, r1 * s);
-          L.paint(i, p.core ? clamp((p.x - 545) / 90, 0, 1) : 0, clamp(Math.min((p.x + 60) / 120, (1250 - p.x) / 220), 0, 1) * 0.85);
+        for (var q = 0; q < N; q++) {
+          var p = parts[q], c = Math.cos(p.a), s = Math.sin(p.a), len, r0, r1;
+          if (p.out) {          // thrown out sideways and forward by the bent wings
+            r0 = p.or + 260 * Math.max(0, p.t - 0.05); r1 = p.or + 260 * p.t;
+            L.put(q, p.ox - 150 * Math.max(0, p.t - 0.05) - CX, r0 * c, r0 * s, p.ox - 150 * p.t - CX, r1 * c, r1 * s);
+            L.paint(q, 0, clamp(1 - p.t / 0.65, 0, 1) * 0.85);
+            continue;
+          }
+          len = Math.max(4, p.v * 0.05); r0 = laneR(p, p.x - len); r1 = laneR(p, p.x);
+          L.put(q, p.x - len - CX, r0 * c, r0 * s, p.x - CX, r1 * c, r1 * s);
+          L.paint(q, p.core ? clamp((p.x - 548) / 90, 0, 1) : 0, clamp(Math.min((p.x + 60) / 120, (1250 - p.x) / 220), 0, 1) * 0.85);
         }
         L.flush();
       },
@@ -1033,37 +1206,94 @@
   // =====================================================================
   // what each machine says about itself
   // =====================================================================
+  // jet name tags are written in the machine's own front-to-back numbers; this moves them to the page's middle
+  function J(list) {
+    return list.map(function (t) {
+      var c = t.slice();
+      c[1] = [t[1][0] - 520, t[1][1], t[1][2] || 0];
+      c[2] = [t[2][0] - 520, t[2][1]];
+      return c;
+    });
+  }
   var DEFS = {
     jet: {
       title: 'Fire Wind Pusher', tsub: 'what people call a jet engine',
       sub: 'The machine under the wing that pushes a flying machine through the sky.',
       corner: '&larr; The whole machine gets pushed this way',
-      build: buildJet, cam: { cx: 30, cy: 0, hw: 580, hh: 345, az: -0.5, el: 0.3 }, cutMax: 192, pane: [900, 440],
+      build: buildJet, cam: { cx: 20, cy: 30, hw: 600, hh: 365, az: -0.5, el: 0.3 }, cutMax: 192, pane: [940, 480],
       fuelLabel: 'How much fire water goes in', barLabel: 'How hard it pushes', barLo: 'soft', barHi: 'hard',
       bar: function (f) { return Math.pow(f / 1.7, 2); },
       steps: [
-        ['The whole thing', 'Air goes in the front. Some of it gets pressed and burned. All of it comes out the back faster than it went in. Throwing air back is what pushes the machine forward. Press a name on the drawing to hear about that part.'],
-        ['1. Pull air in', 'The big turner at the front pulls in air. A big one can pull in enough to fill a house every second. Only a little of that air goes into the hot middle. Most of it goes around and gets thrown straight out the back.'],
-        ['2. Press it small', 'The air in the middle goes through row after row of small turning wings. Each row pushes it into a smaller space. By the end it is pressed many times tighter, and it is already hot before any fire touches it.'],
-        ['3. Burn it', 'Fire water is shot into the pressed air and burns. The fire is lit once and then keeps going as long as fire water keeps coming. Burning makes the air much hotter. Hot air needs a lot more room, so it rushes for the only way out, which is the back.'],
-        ['4. Shoot it out', 'On its way out, the hot air turns a set of wheels. The wheels turn the stick, and the stick turns everything at the front. So the air that is leaving is what pulls new air in. What is left of the hot air shoots out of the back hole.']
+        ['The whole thing', 'This is the kind on big flying machines. Air goes in the front. A little of it goes through the hot middle, where it gets pressed and burned. All that burning is only there to turn the big turner at the front, and the big turner throws the rest of the air straight out the back. Throwing air back is what pushes the machine forward. Press a step to look closer, or a name to hear about that part.'],
+        ['1. Pull air in', 'The big turner is the only part you can see from the front. It pulls in enough air to fill a house every second. Only about one part in ten goes into the hot middle. The rest goes around it and out the back, and that cold air does most of the pushing. Right behind the turner, a ring of still wings straightens the air, and a few small rows start pressing the air for the middle.',
+          { key: 'front', cam: { cx: -255, cy: 0, hw: 185, hh: 258 } }],
+        ['2. Press it small', 'Now the air for the middle goes through row after row of small wings. Every other row turns, and the rows between them stand still. Each pair presses the air into a smaller space, which is why the path gets thinner as it goes. By the end the air is pressed about forty times tighter and is hot enough to light paper, before any fire touches it. Under all this sits the helper box, which the outer stick turns through a thin up-down stick.',
+          { key: 'press', cam: { cx: -75, cy: 0, hw: 130, hh: 178 } }],
+        ['3. Burn it', 'The pressed air slows down in a wide part and then meets the fire. Only some of it goes in the front of the fire room, where a ring of throwers shoots fire water into it. The rest goes around the outside of the fire room and comes in through rows of small holes. That keeps the fire off the walls, and it cools the hot air just enough that the next part does not turn soft.',
+          { key: 'burn', cam: { cx: 65, cy: 0, hw: 100, hh: 152 } }],
+        ['4. Shoot it out', 'The hot air rushes out through rows of wheels and turns them. The first wheel takes the hottest air and turns the outer stick, which runs the main pressers. The later wheels turn the inner stick, which runs the big turner at the front. So the air that is leaving is what pulls new air in. What is left goes out the back hole, around a pointed end.',
+          { key: 'out', cam: { cx: 255, cy: 0, hw: 150, hh: 150 } }],
+        ['5. Slow down', 'Wheels alone cannot stop something this heavy quickly. So after landing, the back of the outside cover slides back. Doors swing down and block the path of the air that goes around, and rows of small bent wings in the opening throw that air out to the sides and forward. Now the machine is pushing the wrong way, which for once is what you want.',
+          { key: 'rev', mode: 'rev', cam: { cx: 80, cy: -75, hw: 235, hh: 200 } }]
       ],
-      tags: [
-        ['Big air turner', [-262, 118], [-330, 240], 1, 'Big air turner: the part you see from the front. It pulls in air and throws most of it straight out the back.'],
-        ['Air that goes around', [-60, 120], [-120, 292], 1, 'Air that goes around: most of the air never touches the fire. It goes around the hot middle. This cold air does most of the pushing.'],
-        ['Fire water pipe', [36, 84], [90, 240], 3, 'Fire water pipe: it shoots fire water into the pressed air as tiny drops.'],
-        ['Back hole', [346, 46], [360, 240], 4, 'Back hole: it gets smaller, so the hot air has to go faster on its way out.'],
-        ['Air pressers', [-110, -48], [-200, -240], 2, 'Air pressers: rows of small turning wings. Each row pushes the air into a smaller space. Pressed air burns much better.'],
-        ['Fire room', [70, -46], [-10, -292], 3, 'Fire room: the fire here never stops while the machine is on. It makes the air very hot, and hot air wants a lot more room.'],
-        ['Turning stick', [134, -12], [160, -240], 4, 'Turning stick: it joins the wheels at the back to everything at the front, so they all turn together.'],
-        ['Hot air wheels', [196, -54], [330, -292], 4, 'Hot air wheels: hot air rushing out turns these. They turn the stick.']
-      ],
+      tags: J([
+        ['Wing', [760, 262, -60], [800, 345], 0, 'Wing: the whole machine hangs under this. The fire water is kept inside the wing.'],
+        ['Holding arm', [560, 215], [600, 300], 0, 'Holding arm: this holds the machine under the wing. Fire water, power lines and air for the people inside all run through it. The pins that hold it on are made to break if the machine ever shakes too hard, so that it falls off without taking the wing along.'],
+        ['Outside cover', [400, 189], [380, 345], 0, 'Outside cover: smooth, so the air slides past. It is mostly empty inside. Parts of it open like doors so people can reach what is under it.'],
+        ['Big air turner', [258, 120], [170, 300], 0, 'Big air turner: the part you see from the front. It pulls in air and throws most of it straight out the back.'],
+        ['Air that goes around', [470, -120], [330, -240], 0, 'Air that goes around: most of the air never touches the fire. It goes around the hot middle. This cold air does most of the pushing.'],
+        ['Hot middle', [450, -50], [470, -285], 0, 'Hot middle: everything inside the inner cover. This is the real fire machine, and all it is for is turning the big turner.'],
+        ['Helper box', [440, -86], [610, -240], 0, 'Helper box: it does all the small jobs. The turning stick runs it, and it runs the starter, the fire water pusher, the power maker and the pusher for slide stuff.'],
+        ['Slow-down cover', [620, -152], [730, -285], 0, 'Slow-down cover: the back of the outside cover. After landing it slides back to turn the air around. Press step 5 to see it.'],
+        ['Back hole', [866, -58], [880, -240], 0, 'Back hole: it gets smaller, so the hot air has to go faster on its way out.'],
+
+        ['Warm front edge', [158, 160], [165, 236], 1, 'Warm front edge: ice likes to grow here when the air is cold and wet. A thin pipe brings hot air from the pressers to keep this edge warm, because a big piece of ice falling into the turner is bad.', 'front'],
+        ['Strong ring', [258, 163], [262, 212], 1, 'Strong ring: if one of the big wings ever breaks off, it leaves very fast. This ring is there to catch it, so that it does not go through the side of the flying machine.', 'front'],
+        ['Big still wings', [327, 125], [352, 236], 1, 'Big still wings: the big turner leaves the air turning around and around. These straighten it out so that it pushes straight back. They also hold the hot middle in place.', 'front'],
+        ['Nose point', [200, -10], [160, -212], 1, 'Nose point: it turns with the big turner. The line on it lets people on the ground see that it is turning, so they stay away.', 'front'],
+        ['Turner wings', [258, -100], [255, -238], 1, 'Turner wings: each one is turned more near the middle than at the end, because the end moves much faster through the air. Together they do most of the pushing.', 'front'],
+        ['First pressers', [322, -58], [350, -212], 1, 'First pressers: a few rows that ride on the same stick as the big turner. They start pressing the air that goes into the hot middle.', 'front'],
+        ['Front holder', [366, -12], [410, -238], 1, 'Front holder: a ring of balls that lets the stick turn while everything around it stays still. Slide stuff is pushed through it all the time to keep it cool.', 'front'],
+
+        ['Wing turner rings', [406, 70], [365, 158], 2, 'Wing turner rings: the first rows of still wings can turn a little. These rings turn a whole row at once, so the air meets each row the right way whether the machine is going slow or fast.', 'press'],
+        ['Still wings', [410, 52], [432, 135], 2, 'Still wings: they catch the air that the turning wings have thrown, slow it down, and point it at the next row. Slowing air down is what presses it.', 'press'],
+        ['Air for the people', [500, 92], [505, 158], 2, 'Air for the people: some pressed air is taken out here and sent up to the body of the flying machine. After it is cooled, it is the air the people inside breathe.', 'press'],
+        ['Warm air pipe', [400, 94], [335, 135], 2, 'Warm air pipe: it carries hot pressed air forward to keep ice off the front edge.', 'press'],
+        ['Turning wings', [417, -45], [455, -135], 2, 'Turning wings: they throw the air back and around, very fast. The rows get shorter toward the back because the pressed air takes up less room.', 'press'],
+        ['Up-down stick', [396, -44], [350, -158], 2, 'Up-down stick: a thin stick that carries turning from the outer stick down to the helper box.', 'press'],
+        ['Starter', [381, -82, -13], [335, -135], 2, 'Starter: the fire cannot start until the pressers are already turning. So this is blown around by air from another machine, and it turns the stick until the fire can keep things going by itself.', 'press'],
+        ['Helper box', [440, -90], [430, -158], 2, 'Helper box: a box of toothed wheels. It takes turning from the stick and hands it to all the small machines on it.', 'press'],
+        ['Power maker', [500, -82, 12], [530, -158], 2, 'Power maker: it makes the power for every light, screen and food warmer on the flying machine.', 'press'],
+        ['Fire water pusher', [495, -84, -14], [548, -135], 2, 'Fire water pusher: it pushes fire water up to the ring around the fire room. A small box next to it decides how much goes in.', 'press'],
+
+        ['Fire water ring', [548, 72], [515, 132], 3, 'Fire water ring: a pipe that goes all the way around, so that every thrower gets the same amount.', 'burn'],
+        ['Fire starter', [575, 66], [588, 108], 3, 'Fire starter: it makes a small flash, like the starter on a cooking fire. It is only needed at the start. After that the fire keeps itself going.', 'burn'],
+        ['Walls with holes', [620, 56], [655, 132], 3, 'Walls with holes: the fire is hotter than these walls can take. Pressed air comes in through rows of small holes and makes a thin cool cover on the inside of the walls.', 'burn'],
+        ['Fire water throwers', [551, -62], [515, -132], 3, 'Fire water throwers: they throw fire water into the air as a cloud of tiny drops. Tiny drops burn fast and all the way.', 'burn'],
+        ['Fire', [600, -46], [588, -108], 3, 'Fire: it never stops while the machine is on. It makes the air much hotter, and hot air wants a lot more room.', 'burn'],
+        ['Two sticks', [600, -20], [655, -132], 3, 'Two sticks: there are really two, one inside the other. The outer one joins the first hot wheel to the main pressers and turns very fast. The inner one joins the later hot wheels to the big turner at the front and turns slower. Big wings and small wings like different speeds.', 'burn'],
+
+        ['First hot wheel', [666, 52], [660, 128], 4, 'First hot wheel: it sits right behind the fire. The air here is hotter than the heat that would turn these wings soft, so each wing has tiny holes in it, and cooler air is pushed out through them all the time.', 'out'],
+        ['Later hot wheels', [736, 66], [760, 105], 4, 'Later hot wheels: the air has more room by now, so these are bigger. They turn the inner stick, which turns the big turner at the front. Most of the work from the fire ends up here.', 'out'],
+        ['Back hole', [864, 58], [870, 128], 4, 'Back hole: the hot air that is left leaves here. On this kind of machine it only does a small part of the pushing.', 'out'],
+        ['Pointing wings', [684, -50], [660, -128], 4, 'Pointing wings: still wings in front of each wheel. They point the hot air at the turning wings from the best side.', 'out'],
+        ['Back holder', [786, -28], [770, -105], 4, 'Back holder: another ring of balls, holding the back end of the inner stick.', 'out'],
+        ['Pointed end', [870, -12], [880, -128], 4, 'Pointed end: it lets the hot air come together smoothly behind the last wheel.', 'out'],
+
+        ['Bent wing rows', [548, -158], [440, -250], 5, 'Bent wing rows: they are hidden inside the cover until it slides back. They turn the air so that it leaves going forward.', 'rev'],
+        ['Sliding cover', [650, -148], [750, -250], 5, 'Sliding cover: the back part of the outside cover. It slides back to open a way out for the air.', 'rev'],
+        ['Blocking doors', [648, -112], [595, -250], 5, 'Blocking doors: they lie flat against the wall until the cover slides, then swing down across the path of the air that goes around.', 'rev']
+      ]),
       loose: [['Air goes in &rarr;', -390, 10], ['Air comes out,<br>much faster &rarr;', 470, -185],
               ['Don\'t stand here<br>(it pulls)', -400, -75, 1], ['Or here<br>(it burns)', 490, 15, 1]],
       gloss: [['Fire wind pusher', 'jet engine (turbofan)'], ['Big air turner', 'fan'], ['Air that goes around', 'bypass air'],
-              ['Air pressers', 'compressor'], ['Fire water', 'jet fuel'], ['Fire room', 'combustion chamber'],
-              ['Hot air wheels', 'turbine'], ['Turning stick', 'shaft'], ['Back hole', 'nozzle']],
-      fine: 'The outside is cut open, but the turning parts are left whole so you can watch them go around. This model has one turning stick to keep it simple. Real ones have two or three, one inside another, so the front and the back can each turn at the speed they like best.'
+              ['Outside cover', 'nacelle'], ['Holding arm', 'pylon'], ['Strong ring', 'containment ring'], ['Big still wings', 'outlet guide vanes'],
+              ['First pressers', 'low-pressure compressor'], ['Turning wings, still wings', 'rotor blades, stator vanes'],
+              ['Wing turner rings', 'variable stator vanes'], ['Air for the people', 'bleed air'], ['Helper box', 'accessory gearbox'],
+              ['Power maker', 'generator'], ['Fire water', 'jet fuel'], ['Fire water ring, throwers', 'fuel manifold, fuel nozzles'],
+              ['Fire starter', 'igniter'], ['Fire room', 'combustion chamber'], ['Hot wheels', 'turbines'], ['Two sticks', 'two spools (shafts)'],
+              ['Holders with balls', 'bearings'], ['Slide stuff', 'oil'], ['Slow-down cover', 'thrust reverser'], ['Back hole', 'nozzle']],
+      fine: 'This is a big two-stick one, of the kind most big flying machines use. The outside is cut open, but the turning parts are left whole so you can watch them go around. A real one has many more wings on every wheel than are drawn here.'
     },
     steam: {
       title: 'Hot Water Pusher', tsub: 'what people call a steam engine',
@@ -1247,9 +1477,29 @@
     tmp.copy(v).project(camera);
     return [(tmp.x * 0.5 + 0.5) * W, (-tmp.y * 0.5 + 0.5) * H];
   }
+  function measureTags() {
+    tags.forEach(function (t) { if (!t.el.hidden) { t.w = t.el.offsetWidth || 90; t.h = t.el.offsetHeight || 20; } });
+  }
   function placeTags() {
+    var vis = [], i, j, it;
     tags.forEach(function (t) {
+      if (t.el.hidden) return;
       var q = toScreen(t.Q);
+      t.sx = q[0]; t.sy = q[1];
+      if (!t.w) { t.w = 90; t.h = 20; }
+      vis.push(t);
+    });
+    // name tags that would sit on top of each other push apart, up and down
+    for (it = 0; it < 4; it++) for (i = 0; i < vis.length; i++) for (j = i + 1; j < vis.length; j++) {
+      var A = vis[i], B = vis[j];
+      if (Math.abs(A.sx - B.sx) >= (A.w + B.w) / 2 + 4) continue;
+      var dy = A.sy - B.sy, need = (A.h + B.h) / 2 + 3 - Math.abs(dy);
+      if (need <= 0) continue;
+      var sgn = dy >= 0 ? 1 : -1;
+      A.sy += sgn * need / 2; B.sy -= sgn * need / 2;
+    }
+    vis.forEach(function (t) {
+      var q = [clamp(t.sx, t.w / 2 + 4, Math.max(t.w / 2 + 4, W - t.w / 2 - 4)), clamp(t.sy, t.h / 2 + 4, Math.max(t.h / 2 + 4, H - t.h / 2 - 4))];
       t.el.style.transform = 'translate(' + q[0].toFixed(1) + 'px,' + q[1].toFixed(1) + 'px) translate(-50%,-50%)';
       if (t.ln) {
         var p = toScreen(t.P);
@@ -1264,7 +1514,9 @@
     if (!w || !h) return;
     setView(w, h, Math.min(window.devicePixelRatio || 1, 2));
     boilF.setAttribute('width', w); boilF.setAttribute('height', h);
+    measureTags();
   }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { measureTags(); });
   if (window.ResizeObserver) new ResizeObserver(function () { if (cur) resize(); }).observe(stage);
   else window.addEventListener('resize', function () { if (cur) resize(); });
 
@@ -1276,6 +1528,16 @@
     var opts = cur.steps[n][2] || {};
     stepCam = opts.cam || null; stepKey = opts.key || null;
     if (cur.m.setMode) cur.m.setMode(opts.mode || null);
+    // the notes for every name tag in this view, all readable at once
+    var notesEl = $('notes');
+    notesEl.textContent = '';
+    tags.forEach(function (t) {
+      if (!t.ln || (t.key || null) !== stepKey) return;
+      var d = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd'), cut = t.note.indexOf(': ');
+      dt.textContent = t.el.textContent; dd.textContent = cut > 0 ? t.note.slice(cut + 2) : t.note;
+      d.appendChild(dt); d.appendChild(dd); notesEl.appendChild(d);
+    });
+    measureTags();
     tags.forEach(function (t) {
       var vis = (t.key || null) === stepKey;
       t.el.hidden = !vis;
