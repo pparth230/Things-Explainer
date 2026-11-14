@@ -16,7 +16,7 @@
     --fill: #dfe8f4;
     --case: #c6d7ee;
     --metal: #6f93c4;
-    --water: #9cc4ee;
+    --water: #4f9de6;
     --fuel: #e9b98f;
     --grid: rgba(27, 75, 138, 0.08);
     --fire: #d4511c;
@@ -26,13 +26,13 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --paper: #143c6e; --ink: #eaf2fb; --soft: #b5cbe6; --fill: #1d4c87;
-      --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2; --fuel: #c98a52;
+      --case: #2d62a6; --metal: #a9c6ea; --water: #7cc0ff; --fuel: #c98a52;
       --grid: rgba(255, 255, 255, 0.07); --fire: #ffb057; color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
     --paper: #143c6e; --ink: #eaf2fb; --soft: #b5cbe6; --fill: #1d4c87;
-    --case: #2d62a6; --metal: #a9c6ea; --water: #4c8ad2; --fuel: #c98a52;
+    --case: #2d62a6; --metal: #a9c6ea; --water: #7cc0ff; --fuel: #c98a52;
     --grid: rgba(255, 255, 255, 0.07); --fire: #ffb057; color-scheme: dark;
   }
 
@@ -380,13 +380,14 @@
     return a;
   }
   // a bunch of short lines whose ends and colours change every frame
-  function lineSet(parent, n, material) {
+  function lineSet(parent, n, material, weight) {
     var pos = new Float32Array(n * 6), colr = new Float32Array(n * 6), geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colr, 3));
-    [0, 1.3].forEach(function (dy) { // drawn twice, a hair apart, so they look thicker
+    // drawn several times, a hair apart, so they look thicker; weight says how many times
+    [[0, 0], [0, 1.3], [1.3, 0], [1.3, 1.3], [-1.3, 0], [0, -1.3], [-1.3, 1.3], [1.3, -1.3]].slice(0, weight || 4).forEach(function (o) {
       var l = new THREE.LineSegments(geo, material);
-      l.frustumCulled = false; l.position.y = dy; parent.add(l);
+      l.frustumCulled = false; l.position.set(o[0], o[1], 0); parent.add(l);
     });
     return {
       pos: pos, col: colr,
@@ -1548,15 +1549,15 @@
     // ---------------- moving lines of water, soap and wet air ----------------
     var dots = [];
     function make(kind, n, init) { for (var q = 0; q < n; q++) { var d = { k: kind, on: false, t: 0 }; init(d); dots.push(d); } }
-    make('jl', 44, function (d) { d.t = rnd(0, 0.35); });
-    make('jm', 40, function (d) { d.t = rnd(0, 0.3); d.down = dots.length % 2 === 0; });
-    make('jt', 14, function (d) { d.t = rnd(0, 0.4); });
-    make('rain', 30, function (d) { d.x = rnd(-250, 250); d.z = rnd(-250, 250); d.y = rnd(-295, 380); });
-    make('fill', 12, function (d) { d.y = rnd(-296, 100); });
+    make('jl', 90, function (d) { d.t = rnd(0, 0.35); });
+    make('jm', 80, function (d) { d.t = rnd(0, 0.3); d.down = dots.length % 2 === 0; });
+    make('jt', 26, function (d) { d.t = rnd(0, 0.4); });
+    make('rain', 70, function (d) { d.x = rnd(-250, 250); d.z = rnd(-250, 250); d.y = rnd(-295, 380); });
+    make('fill', 22, function (d) { d.y = rnd(-296, 100); });
     make('soap', 12, function (d) { d.life = 0; d.x = 0; d.y = 0; d.z = 0; });
     make('wet', 24, function (d) { d.x = rnd(-230, 230); d.z = rnd(-230, 230); d.y = rnd(-100, 380); });
     make('vent', 10, function (d) { d.x = 285; d.y = rnd(404, 470); d.z = rnd(-40, 40); });
-    var L = lineSet(root, dots.length, mat.dots);
+    var L = lineSet(root, dots.length, mat.dots, 8);
 
     // ---------------- the wash, start to end ----------------
     var PH = [['fill', 4, 'Clean water is coming in'], ['wash', 9, 'Washing: water and soap are thrown at everything'], ['drain', 4, 'The food water is being sent away'],
@@ -1634,7 +1635,7 @@
       for (var i = 0; i < dots.length; i++) {
         var d = dots[i], t0, t1;
         if (d.k === 'jl' || d.k === 'jm' || d.k === 'jt') {
-          t1 = d.t; t0 = Math.max(0, t1 - 0.035);
+          t1 = d.t; t0 = Math.max(0, t1 - 0.06);
           L.put(i, d.x0 + d.vx * t0, d.y0 + d.vy * t0 - 450 * t0 * t0, d.z0 + d.vz * t0, d.x0 + d.vx * t1, d.y0 + d.vy * t1 - 450 * t1 * t1, d.z0 + d.vz * t1);
           L.tint(i, col.water, d.on && d.x0 !== undefined ? 1 : 0);
         }
