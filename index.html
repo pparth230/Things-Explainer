@@ -285,10 +285,10 @@
       '  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }',
       'void main(){',
       '  vec2 c = vUv * res / px;',
-      '  vec2 q = c / 55.0 + seed * 17.3;',
+      '  vec2 q = c / 55.0 + vec2(seed, seed * 0.6);',
       '  vec2 d = vec2(vn(q) + 0.5 * vn(q * 2.1 + 5.0), vn(q + 31.7) + 0.5 * vn(q * 2.1 + 47.0)) / 1.5 - 0.5;',
       '  vec2 uv = vUv + d * 7.0 * px / res;',
-      '  vec2 o = 1.1 * px / res;',
+      '  vec2 o = 0.7 * px / res;',
       '  vec4 n0 = texture2D(tB, uv + vec2(-o.x, -o.y)); vec4 n1 = texture2D(tB, uv + vec2(o.x, -o.y));',
       '  vec4 n2 = texture2D(tB, uv + vec2(-o.x, o.y));  vec4 n3 = texture2D(tB, uv + o);',
       '  float line = smoothstep(0.25, 0.6, length(n0 - n3) + length(n1 - n2));',
@@ -1455,7 +1455,7 @@
       az = cur.cam.az; el = cur.cam.el; copyCam(cur.cam);
       setCut(0); // tiles show the machine whole, from the outside
       cur.m.draw();
-      setView(640, 400, 1);
+      setView(640, 400, 2);
       placeCamera();
       drawFrame();
       tiles[id].getContext('2d').drawImage(canvas, 0, 0, 640, 400);
@@ -1512,7 +1512,7 @@
   function resize() {
     var w = stage.clientWidth, h = stage.clientHeight;
     if (!w || !h) return;
-    setView(w, h, Math.min(window.devicePixelRatio || 1, 2));
+    setView(w, h, 2); // always drawn at twice the size and shrunk, so thin edges stay smooth instead of crawling
     boilF.setAttribute('width', w); boilF.setAttribute('height', h);
     measureTags();
   }
@@ -1675,8 +1675,8 @@
     }
     if (!S.paused) {
       cur.m.update(dt);
-      boilT += dt;
-      if (boilT > 0.17) { boilT = 0; seed = seed % 4 + 1; post.uniforms.seed.value = seed; turb.setAttribute('seed', seed); }
+      // the hand wobble stays, but it only drifts very slowly now, so lines do not jump from frame to frame
+      post.uniforms.seed.value += dt * 0.02;
     }
     cur.m.draw();
     // glide the view toward wherever this step, or the machine itself, wants us to look
