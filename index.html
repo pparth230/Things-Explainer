@@ -1651,6 +1651,225 @@
   }
 
   // =====================================================================
+  // machine 5: small thing looker (electron microscope, the kind that shoots through the thing)
+  // =====================================================================
+  function buildScope() {
+    var root = new THREE.Group();
+    function V(x, y, z) { return new THREE.Vector3(x, y, z || 0); }
+    function wbox(parent, x0, x1, y0, y1, z0, z1, m) {
+      var b = addWhole(parent, new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      b.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      return b;
+    }
+    function LY(pts, seg) { return new THREE.LatheGeometry(prof(pts, 0, true), seg || 48); }   // [how high, how far out]
+    function LYopen(pts, seg) { return new THREE.LatheGeometry(prof(pts, 0, false), seg || 32); }
+    function ring(a, b, r0, r1) { return LY([[a, r1], [b, r1], [b, r0], [a, r0]]); }
+
+    // wire rings are drawn in their own colour, and stay that colour where they are cut
+    var coilM = new THREE.MeshLambertMaterial({ clippingPlanes: clips }), coilCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: clips });
+    var nCoilCap = new THREE.MeshBasicMaterial({ color: 0x777777, side: THREE.BackSide, clippingPlanes: clips });
+    var copperW = new THREE.MeshLambertMaterial();
+    var coldPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 176), cClips = [cutPlane, coldPlane];
+    var coldM = new THREE.MeshLambertMaterial({ clippingPlanes: cClips }), coldCap = new THREE.MeshBasicMaterial({ side: THREE.BackSide, clippingPlanes: cClips });
+    var nCold = new THREE.MeshNormalMaterial({ clippingPlanes: cClips }), nColdCap = new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.BackSide, clippingPlanes: cClips });
+    function theme() {
+      coilM.color.set(cssVar('--fuel')); coilCap.color.set(cssVar('--fuel')); copperW.color.set(cssVar('--fuel'));
+      coldM.color.set(cssVar('--water')); coldCap.color.set(cssVar('--water'));
+    }
+    themeFns.push(theme); theme();
+    function coil(geo) {
+      var a = new THREE.Mesh(geo, coilM); a.userData.n = nClip; root.add(a);
+      var b = new THREE.Mesh(geo, coilCap); b.userData.n = nCoilCap; root.add(b);
+    }
+    // one bending ring: an iron shell with a thin space in its inside wall, and a big ring of wire inside it
+    function lens(y0, y1, rOut, bore, g) {
+      var ym = (y0 + y1) / 2, a = bore + 14, b = rOut - 8;
+      addCut(root, LY([[y0,bore],[y0,rOut],[y1,rOut],[y1,bore],[ym+g,bore],[ym+g,a],[y1-8,a],[y1-8,b],[y0+8,b],[y0+8,a],[ym-g,a],[ym-g,bore]]));
+      coil(ring(y0 + 11, y1 - 11, a + 4, b - 4));
+    }
+
+    // ---------------- floor, table, boxes ----------------
+    wbox(root, -500, 500, -485, -470, -220, 220, mat.body);
+    wbox(root, -340, -130, -240, -225, -170, 170, mat.body);
+    wbox(root, 130, 340, -240, -225, -170, 170, mat.body);
+    wbox(root, -340, -165, -470, -240, -170, 170, mat.body);
+    wbox(root, 215, 340, -470, -240, -170, 170, mat.body);
+    wbox(root, -470, -375, -470, -250, -80, 80, mat.metal);                    // strong power box
+    wbox(root, 232, 330, -222, -138, -70, -58, mat.metal);                     // picture screen on the table
+    [-300, -270, -240, -210].forEach(function (x) { [60, 100].forEach(function (z) { tubeBetween(root, V(x, -225, z), V(x, -214, z), 7); }); });   // turn handles
+
+    // ---------------- bit maker at the top ----------------
+    addCut(root, LY([[320,75],[445,75],[445,30],[440,30],[440,70],[320,70]]));
+    addCut(root, ring(326, 332, 6, 70), mat.metalC);                           // plate with a hole
+    addWhole(root, LYopen([[385,0],[385,14],[400,22],[445,28],[470,28],[470,0]]), mat.body);   // holder that power cannot cross
+    tubeBetween(root, V(-4, 385), V(0, 372), 0.9); tubeBetween(root, V(4, 385), V(0, 372), 0.9);   // hot wire
+    addCut(root, LY([[392,26],[366,26],[366,4],[369,4],[369,23],[392,23]]), mat.metalC);     // cup
+    pipeThrough(root, [V(-420,-250), V(-420,300), V(-380,470), V(-100,520), V(0,500), V(0,470)], 9, mat.body);   // power line
+    wbox(root, -30, 30, 380, 430, -135, -95, mat.metal);                       // small air puller for the top
+    tubeBetween(root, V(0, 405, -72), V(0, 405, -95), 8, mat.body);
+    coil(ring(302, 314, 20, 34));                                              // pointing rings
+
+    // ---------------- the stack of bending rings, with short pipes between them ----------------
+    lens(245, 298, 88, 12, 5); lens(178, 232, 88, 12, 5);
+    lens(62, 140, 112, 14, 9);
+    lens(-12, 42, 88, 12, 5); lens(-82, -28, 88, 12, 5);
+    [[298,320],[232,245],[140,178],[42,62],[-28,-12],[-95,-82]].forEach(function (s) { addCut(root, ring(s[0], s[1], 40, 46)); });
+    coil(ring(148, 158, 20, 34));
+    // cold water for the wire rings: one pipe up the back, with a short pipe to each ring
+    tubeBetween(root, V(60, -70, -105), V(60, 300, -105), 3);
+    [271, 205, 101, 15, -55].forEach(function (y) { tubeBetween(root, V(60, y, -105), V(52, y, -72), 2.5); });
+    // strips with small holes, on sticks that are turned in from the side
+    tubeBetween(root, V(8, 166), V(150, 166), 2.5); tubeBetween(root, V(150, 166), V(166, 166), 9, mat.body);
+    wbox(root, -10, 10, 165, 167, -5, 5, mat.metal);
+    tubeBetween(root, V(-8, 82), V(-150, 82), 2.5); tubeBetween(root, V(-150, 82), V(-166, 82), 9, mat.body);
+    wbox(root, -10, 10, 81, 83, -5, 5, mat.metal);
+
+    // ---------------- the thing you look at: holder stick, air door, cold finger and cold can ----------------
+    var holder = new THREE.Group();
+    holder.position.y = 101;
+    root.add(holder);
+    tubeBetween(holder, V(4, 0), V(205, 0), 4);
+    tubeBetween(holder, V(205, 0), V(255, 0), 12, mat.body);
+    addWhole(holder, new THREE.CylinderGeometry(5, 5, 1.2, 16), mat.body);     // tiny net
+    wbox(root, 112, 146, 88, 114, -14, 14, mat.metal);                         // air door
+    tubeBetween(root, V(-16, 104), V(-172, 104), 3, copperW);
+    var dewar = addCut(root, LY([[100,34],[200,34],[200,30],[104,30],[104,0],[100,0]], 32));
+    dewar.position.x = -200;
+    var coldGeo = LY([[105,0],[105,29],[196,29],[196,0]], 32);
+    var c1 = new THREE.Mesh(coldGeo, coldM); c1.userData.n = nCold; c1.position.x = -200; root.add(c1);
+    var c2 = new THREE.Mesh(coldGeo, coldCap); c2.userData.n = nColdCap; c2.position.x = -200; root.add(c2);
+
+    // ---------------- looking room, glow plate, eye pieces, picture taker ----------------
+    addCut(root, LY([[-95,46],[-120,125],[-232,125],[-232,60],[-227,60],[-227,120],[-123,120],[-99,41],[-95,41]], 56));
+    var screen = new THREE.Group();
+    screen.position.set(-58, -215, 0);
+    root.add(screen);
+    var plate = addWhole(screen, new THREE.CylinderGeometry(58, 58, 3, 40), mat.body);
+    plate.position.x = 58;
+    var glow = new THREE.Mesh(new THREE.CylinderGeometry(54, 54, 1, 40), mat.flame2);
+    glow.position.set(58, 2.2, 0); screen.add(glow);
+    var pic = new THREE.Group();                                               // the picture on the plate: a round small thing with points all around it
+    pic.position.set(58, 3.4, 0); screen.add(pic);
+    addWhole(pic, new THREE.CylinderGeometry(13, 13, 1, 20), mat.metal);
+    for (var k = 0; k < 10; k++) {
+      var sp = addWhole(pic, new THREE.CylinderGeometry(2.6, 2.6, 1, 10), mat.metal), ka = k * Math.PI / 5;
+      sp.position.set(19 * Math.cos(ka), 0, 19 * Math.sin(ka));
+    }
+    [-13, 13].forEach(function (x) { tubeBetween(root, V(x, -128, 116), V(x, -84, 166), 9, mat.body); });   // eye pieces
+    tubeBetween(root, V(120, -140), V(150, -140), 4);
+    addWhole(root, new THREE.SphereGeometry(9, 12, 10), mat.body).position.set(156, -140, 0);
+    addCut(root, LY([[-232,64],[-300,64],[-300,0],[-295,0],[-295,59],[-232,59]], 40));
+    wbox(root, -36, 36, -289, -283, -36, 36, mat.metal);                       // picture taker
+    var camGlow = new THREE.Mesh(new THREE.BoxGeometry(60, 1, 60), mat.flame2);
+    camGlow.position.set(0, -282, 0); root.add(camGlow);
+
+    // ---------------- air pullers ----------------
+    pipeThrough(root, [V(-120,-180), V(-150,-186), V(-150,-384), V(-48,-388)], 13, mat.body);
+    wbox(root, -166, -134, -276, -250, -15, 15, mat.metal);
+    tubeBetween(root, V(-150, -263, 15), V(-150, -263, 38), 3);
+    addCut(root, LY([[-305,50],[-455,50],[-455,0],[-450,0],[-450,45],[-305,45]], 40));
+    var turbo = new THREE.Group();
+    root.add(turbo);
+    tubeBetween(turbo, V(0, -322), V(0, -430), 6, mat.body);
+    var spinRows = [], stillRows = [];
+    for (k = 0; k < 5; k++) {
+      spinRows.push({ y: -332 - k * 20, hub: 6, tip: 42, w: 6, th: 1.5, pitch: 0.6, n: 20 });
+      stillRows.push({ y: -342 - k * 20, hub: 12, tip: 45, w: 5, th: 1.5, pitch: -0.6, n: 20 });
+    }
+    bladeRing(turbo, UNIT, spinRows, false, mat.metal);
+    bladeRing(root, UNIT, stillRows, true, mat.metalC);
+    tubeBetween(root, V(0, -430), V(0, -448), 20, mat.body);
+    wbox(root, 85, 195, -470, -425, -40, 40, mat.body);                        // first air puller, on the floor
+    tubeBetween(root, V(195, -447), V(214, -447), 16, mat.metal);
+    tubeBetween(root, V(48, -440), V(85, -445), 7, mat.body);
+
+    // ---------------- moving lines: power bits, air, cold cloud ----------------
+    var ENV = [[0,0],[37,6],[97,14],[132,0],[167,-10],[272,-4],[297,0],[357,10],[382,0],[427,-8],[447,0],[585,95],[700,174]];
+    var NR = 150, NA = 70, NF = 10, N = NR + NA + NF, parts = [], L = lineSet(root, N, mat.dots, 4);
+    function newRay(p, any) { p.y = any ? rnd(-213, 372) : 372; p.u = Math.sqrt(Math.random()); p.a = rnd(0, Math.PI * 2); p.j = rnd(0.85, 1.15); p.scat = Math.random() < 0.2; p.dead = false; }
+    function newAir(p) {
+      p.y = rnd(-225, 440);
+      var rr = p.y < -100 ? rnd(0, 110) : p.y > 320 ? rnd(0, 60) : rnd(0, 10), aa = rnd(0, Math.PI * 2);
+      p.x = rr * Math.cos(aa); p.z = -Math.abs(rr * Math.sin(aa)); p.jx = 0; p.jy = 0;
+    }
+    for (var i = 0; i < N; i++) {
+      var p = { k: i < NR ? 1 : i < NR + NA ? 2 : 3 };
+      if (p.k === 1) newRay(p, true); else if (p.k === 2) newAir(p); else { p.y = rnd(150, 205); p.x = -200 + rnd(-40, 40); }
+      parts.push(p);
+    }
+
+    var mode = null, T = 0, air = 0, lift = 0, slide = 0, jitT = 0, beam = true, hx0;
+    var api = { root: root, tagP: {}, caption: 'The inside has to be empty of air' };
+    function pose() {
+      screen.rotation.z = 1.25 * lift;
+      holder.position.x = 130 * slide;
+      pic.scale.set(0.5 + 0.9 * S.f, 1, 0.5 + 0.9 * S.f);
+      var s = lift > 0.5 && beam ? 1 : 0.001;
+      camGlow.scale.set(s, 1, s);
+      s = beam && lift < 0.5 ? 1 : 0.001;
+      glow.scale.set(s, 1, s);
+      if (api.tagP['Holder stick']) {
+        if (hx0 === undefined) hx0 = api.tagP['Holder stick'].x;
+        api.tagP['Holder stick'].x = hx0 + 130 * slide;
+      }
+    }
+    pose();
+    api.setMode = function (m) { mode = m; T = 0; };
+    api.update = function (dt) {
+      var wantLift = 0, wantSlide = 0, i, p;
+      T += dt;
+      if (mode === 'vac') {
+        var c = T % 9;
+        air = c < 5 ? 1 - c / 5 : 0;
+        api.caption = c < 5 ? 'Taking the air out' : 'Empty enough. Now the hot wire can be turned on';
+      } else {
+        air = 0;
+        if (mode === 'cam') { wantLift = T % 7 > 4 ? 1 : 0; api.caption = wantLift ? 'Plate lifted: the bits fall on the picture taker' : 'Bits are landing on the glow plate'; }
+        else if (mode === 'load') { wantSlide = T % 8 > 5 ? 1 : 0; api.caption = wantSlide ? 'Stick pulled back into the air door' : 'The thing is sitting in the line of bits'; }
+        else api.caption = 'The inside has to be empty of air';
+      }
+      lift += (wantLift - lift) * Math.min(1, 4 * dt);
+      slide += (wantSlide - slide) * Math.min(1, 3 * dt);
+      beam = air < 0.04;
+      pose();
+      turbo.rotation.y += 22 * dt;
+      jitT += dt;
+      var jit = jitT > 0.1;
+      if (jit) jitT = 0;
+      var stopAt = lift > 0.5 ? -283 : -213;
+      for (i = 0; i < N; i++) {
+        p = parts[i];
+        if (p.k === 1) {
+          if (p.dead) { if (beam && Math.random() < 0.25) newRay(p, false); continue; }
+          p.y -= 900 * p.j * dt;
+          var end = p.scat && slide < 0.5 ? 84 : (lift > 0.5 && p.u * 105 > 57 ? -227 : stopAt);
+          if (p.y <= end) { if (beam) newRay(p, false); else p.dead = true; }
+        }
+        else if (p.k === 2) { if (jit) { p.jx = rnd(-3, 3); p.jy = rnd(-3, 3); } p.y -= 30 * dt; if (p.y < -225) newAir(p); }
+        else { p.y -= 22 * dt; if (p.y < 150) { p.y = 205; p.x = -200 + rnd(-40, 40); } }
+      }
+    };
+    api.draw = function () {
+      for (var i = 0; i < N; i++) {
+        var p = parts[i], r0, r1, ca, sa;
+        if (p.k === 1) {
+          if (p.dead) { L.put(i, 0, 0, 0, 0, 0, 0); L.paint(i, 1, 0); continue; }
+          ca = Math.cos(p.a); sa = Math.sin(p.a);
+          r0 = at(ENV, 372 - (p.y + 26)) * p.u; r1 = at(ENV, 372 - p.y) * p.u;
+          if (p.scat && slide < 0.5 && p.y < 101) { r0 += (101 - Math.min(101, p.y + 26)) * 0.75; r1 += (101 - p.y) * 0.75; }
+          L.put(i, r0 * ca, p.y + 26, r0 * sa, r1 * ca, p.y, r1 * sa);
+          L.paint(i, 1, 0.95);
+        }
+        else if (p.k === 2) { L.put(i, p.x + p.jx, p.y + p.jy - 2, p.z, p.x + p.jx, p.y + p.jy + 2, p.z); L.paint(i, 0, (i - NR) / NA < air ? 0.8 : 0); }
+        else { L.put(i, p.x, p.y + 6, 0, p.x, p.y, 0); L.tint(i, col.water, 0.7 * clamp((p.y - 150) / 20, 0, 1)); }
+      }
+      L.flush();
+    };
+    api.fuelChanged = pose;
+    return api;
+  }
+
+  // =====================================================================
   // what each machine says about itself
   // =====================================================================
   // jet name tags are written in the machine's own front-to-back numbers; this moves them to the page's middle
@@ -1953,9 +2172,87 @@
               ['High turn', 'high loop'], ['Heat ring', 'heating element'], ['Soap cup', 'detergent dispenser'], ['Air way out', 'vent'], ['Door hook', 'latch'],
               ['Thinking board', 'control board'], ['Knife cup', 'cutlery basket']],
       fine: 'The outside box, the wash room and the door are cut open. The holders and what is in them are left whole. Different makers put the pushers and pipes in different places, and many newer boxes heat the water without a ring on the floor.'
+    },
+    scope: {
+      title: 'Small Thing Looker', tsub: 'what people call an electron microscope',
+      sub: 'The tall machine that sees things too small for light, by shooting tiny bits of power through them.',
+      corner: 'The inside has to be empty of air',
+      build: buildScope, tall: true, cam: { cx: -20, cy: 20, hw: 540, hh: 545, az: -0.38, el: 0.12 }, cutMax: 235, pane: [1080, 1060],
+      fuelLabel: 'How strong the last bending rings are', barLabel: 'How big the picture is', barLo: 'small', barHi: 'big',
+      bar: function (f) { return f / 1.7; },
+      steps: [
+        ['The whole thing', 'You cannot see very small things with light, because light itself is too big to fit around them. So this machine does not use light. It uses power bits, the tiny things that carry power through a wire, which act as if they were far smaller. It shoots a thin line of them down a tall empty pipe, through a very thin piece of the thing you want to see, and then spreads them out onto a plate that glows where they hit. It can show things more than a thousand times smaller than the best light looker can. Press a step to look closer.'],
+        ['1. Take the air out', 'Power bits are so small that air stops them. They would hit the tiny balls that air is made of and fly off in every direction. So before anything else, the air has to come out. A first puller on the floor takes out most of it. Then a second one, a stack of wheels spinning faster than anything in a flying machine, knocks out almost all of what is left. The hot wire is not turned on until the inside is empty.',
+          { key: 'vac', mode: 'vac', cam: { cx: -10, cy: -300, hw: 300, hh: 245 } }],
+        ['2. Make the power bits', 'At the top, a thin wire is made so hot that power bits jump off it. The wire is given a very strong push of power, and below it sits a plate with a hole in it that pulls on the bits. They fly toward the plate faster and faster. The ones in the middle go straight through the hole and on down the pipe, by now moving more than half as fast as light.',
+          { key: 'gun', cam: { cx: 0, cy: 395, hw: 215, hh: 150 } }],
+        ['3. Bend them into a thin line', 'Glass cannot bend power bits, but the pull of iron can. Each bending ring is a big ring of wire inside an iron shell that has a thin space in its inside wall. Power going around the wire makes a pull across that space, and the pull turns the bits back toward the middle, the way bent glass does to light. Two rings bend the bits into a thin line, and a strip with tiny holes stops the ones that are too far off to the side. Nothing has to move to change how much they bend. You turn a handle, more power goes around the wire, and the ring gets stronger.',
+          { key: 'cond', cam: { cx: 0, cy: 235, hw: 200, hh: 115 } }],
+        ['4. Send them through the thing', 'The thing you want to see sits on a tiny net at the end of a stick. The stick goes in from the side through a small air door, so the air does not have to be let back into the whole pipe. The thing has to be cut so thin that the bits can fly through it. Where it is thick or heavy, bits get knocked off their path, and a strip with a small hole just below stops those. Where it is thin, they go straight on. So the line of bits now carries a picture, made of places with more bits and places with fewer.',
+          { key: 'obj', mode: 'load', cam: { cx: 0, cy: 105, hw: 300, hh: 135 } }],
+        ['5. Make the picture big', 'The strongest bending ring sits right around the thing, and two more sit below it. Each one takes the tiny picture and makes it bigger. By the bottom it can be a hundred thousand times as wide as the thing itself. You still cannot see power bits, so they land on a plate covered with stuff that glows where they hit, and you look at that. To keep the picture, the plate lifts out of the way and the bits fall on a picture taker below.',
+          { key: 'proj', mode: 'cam', cam: { cx: 0, cy: -140, hw: 270, hh: 205 } }]
+      ],
+      tags: [
+        ['Power line', [-380, 468], [-440, 520], 0, 'Power line: a fat, well covered line that carries a very strong push of power from the box on the floor up to the hot wire.'],
+        ['Bit maker', [70, 400], [320, 440], 0, 'Bit maker: the can at the top, where a hot wire gives off power bits and they are pulled down into the pipe.'],
+        ['Bending rings', [88, 270], [330, 300], 0, 'Bending rings: these do for power bits what bent glass does for light. There are five of them down the pipe.'],
+        ['Holder stick', [230, 101], [370, 140], 0, 'Holder stick: the thing you want to see rides on its end, right in the middle of the strongest bending ring.'],
+        ['Cold can', [-200, 150], [-400, 200], 0, 'Cold can: it holds air made so cold that it can be poured. A finger of metal carries that cold to a spot right next to the thing you look at.'],
+        ['Looking room', [120, -170], [370, -110], 0, 'Looking room: the wide room at table height where the picture lands on the glow plate.'],
+        ['Air pullers', [50, -390], [340, -400], 0, 'Air pullers: two of them, one after the other, keep the inside of the pipe empty the whole time the machine is on.'],
+        ['Strong power box', [-420, -340], [-440, -180], 0, 'Strong power box: it makes a push of power hundreds of times stronger than the one in a house wall. That push is what makes the bits go so fast.'],
+        ['Turn handles', [-255, -214, 80], [-400, -120], 0, 'Turn handles: each one changes how much power goes around the wire in one of the bending rings.'],
+
+        ['Looking room', [-100, -170], [-250, -105], 1, 'Looking room: the air from the whole pipe is pulled out through an opening in the side of this room.', 'vac'],
+        ['Air door', [-150, -263, 20], [-270, -235], 1, 'Air door: it shuts the pipe off from the pullers, so that the pullers can be stopped without letting air back in.', 'vac'],
+        ['Air pipe', [-150, -330], [-270, -330], 1, 'Air pipe: wide, because when there is almost no air left, what is left does not rush. It only wanders, and a wide way makes it more likely to wander in.', 'vac'],
+        ['Spinning air puller', [35, -380], [210, -345], 1, 'Spinning air puller: rows of leaning wings going around so fast that when one of the tiny balls of air wanders in, a wing hits it and knocks it downward. Still rows between them stop it from coming back up.', 'vac'],
+        ['First air puller', [140, -447], [250, -415], 1, 'First air puller: it takes away what the spinning one pushes down, and gets rid of most of the air before the spinning one is even turned on.', 'vac'],
+
+        ['Power line', [0, 488], [-140, 520], 2, 'Power line: it brings the strong push of power down into the bit maker.', 'gun'],
+        ['Stop-power holder', [20, 432], [165, 480], 2, 'Stop-power holder: the hot wire has to be held by something power cannot cross, or the push would jump to the wall of the can as a flash. This is made of baked earth.', 'gun'],
+        ['Small air puller', [0, 405, -115], [-165, 450], 2, 'Small air puller: the hot wire burns away fast if any air touches it, so the top has its own puller to keep it extra empty.', 'gun'],
+        ['Hot wire', [0, 374], [-165, 395], 2, 'Hot wire: thinner than a hair and bent to a point. It is so hot that power bits jump off the point.', 'gun'],
+        ['Cup', [24, 374], [165, 400], 2, 'Cup: it sits around the hot wire and pushes the bits toward the middle, so they leave as a thin line and not a cloud.', 'gun'],
+        ['Plate with a hole', [45, 329], [170, 335], 2, 'Plate with a hole: the bits are pulled hard toward this plate. Most hit it. The ones going straight down the middle go through the hole, and those are the ones the machine uses.', 'gun'],
+        ['Pointing rings', [27, 308], [-165, 300], 2, 'Pointing rings: small wire rings that push the line of bits a little to one side or the other, to get it going right down the middle of the pipe.', 'gun'],
+
+        ['Space in the iron', [14, 271], [-170, 305], 3, 'Space in the iron: the pull only gets out here, where the iron stops. So the bits feel it in one short place, which is what makes a clean bend.', 'cond'],
+        ['Crossing place', [0, 240], [-175, 265], 3, 'Crossing place: after each ring the paths of the bits come together, cross, and spread out again.', 'cond'],
+        ['Cold water pipe', [60, 225, -105], [-175, 222], 3, 'Cold water pipe: all that power going around the wire makes it hot. Water runs through every ring to carry the heat away, because a warm ring bends the bits a little differently.', 'cond'],
+        ['Strip with small holes', [0, 166], [-170, 172], 3, 'Strip with small holes: a thin strip of metal with holes smaller than the width of a hair. Only the bits near the middle get through.', 'cond'],
+        ['Wire ring', [55, 271], [175, 305], 3, 'Wire ring: a very long wire wound around and around. Power going around it is what makes the pull.', 'cond'],
+        ['Iron shell', [86, 262], [185, 262], 3, 'Iron shell: it gathers the pull from the whole wire ring and carries it around to the one thin space.', 'cond'],
+        ['Hole handle', [158, 166], [185, 195], 3, 'Hole handle: it slides the strip in and out to pick a bigger or smaller hole, and to get the hole right in the middle.', 'cond'],
+
+        ['Cold can', [-200, 160], [-265, 225], 4, 'Cold can: filled with air made so cold that it can be poured. It has to be filled again every few hours as the cold stuff turns back into air.', 'obj'],
+        ['Cold finger', [-90, 104], [-110, 190], 4, 'Cold finger: a bar of metal that ends right next to the thing. Any water or dirt flying around inside sticks to the cold bar and not to the thing.', 'obj'],
+        ['Tiny net', [0, 101], [110, 205], 4, 'Tiny net: a round net a few times wider than the point of a pen. The thing lies across its holes, and the bits go through the holes.', 'obj'],
+        ['Holder stick', [170, 101], [250, 180], 4, 'Holder stick: it can be moved by tiny amounts to bring a different part of the thing into the line of bits, and leaned over to look from another side.', 'obj'],
+        ['Air door', [130, 101], [270, 60], 4, 'Air door: the stick stops here on the way in while the air around it is pulled out. Only then does the way into the pipe open.', 'obj'],
+        ['Strongest ring', [100, 78], [255, 20], 4, 'Strongest ring: the thing sits inside the space in this ring. It makes the first and most important bigger picture, so any small wrong in it shows up in everything after.', 'obj'],
+        ['Stop strip', [0, 82], [-255, 45], 4, 'Stop strip: bits that were knocked off their path by the thing hit this strip. That is what makes the thick parts of the thing come out dark.', 'obj'],
+
+        ['Middle ring', [82, 15], [235, 35], 5, 'Middle ring: it takes the picture from the strongest ring and makes it bigger again. Changing its power is how you pick how big the picture is.', 'proj'],
+        ['Last ring', [82, -55], [240, -45], 5, 'Last ring: it throws the picture wide, so that it fills the whole glow plate.', 'proj'],
+        ['Eye pieces', [13, -106, 141], [-230, -60], 5, 'Eye pieces: for looking closely at the glow plate through a window of thick heavy glass. The glass is heavy because fast bits make a kind of light that goes through bodies, and it stops that.', 'proj'],
+        ['Glow plate', [35, -212], [245, -175], 5, 'Glow plate: covered with stuff that gives off light where power bits hit it. More bits make it brighter. This is the first time anything in the machine can be seen with eyes.', 'proj'],
+        ['Picture taker', [30, -285], [240, -300], 5, 'Picture taker: when the glow plate lifts out of the way, the bits land here and the picture is kept.', 'proj'],
+        ['Push feeler', [156, -140], [250, -120], 5, 'Push feeler: it feels how much air is left inside, and will not let the hot wire be turned on if there is too much.', 'proj']
+      ],
+      loose: [],
+      gloss: [['Small thing looker', 'electron microscope (transmission kind)'], ['Power bits', 'electrons'], ['Bit maker', 'electron gun'], ['Hot wire', 'filament'],
+              ['Cup', 'Wehnelt cap'], ['Plate with a hole', 'anode'], ['Stop-power holder', 'insulator'], ['Bending rings', 'electromagnetic lenses'],
+              ['First two rings', 'condenser lenses'], ['Strongest ring', 'objective lens'], ['Middle and last rings', 'intermediate and projector lenses'],
+              ['Strip with small holes', 'aperture'], ['Thing you look at', 'specimen'], ['Tiny net', 'grid'], ['Air door on the stick', 'airlock'],
+              ['Cold finger and can', 'cold trap with liquid nitrogen'], ['Glow plate', 'fluorescent screen'], ['Picture taker', 'camera'],
+              ['Spinning air puller', 'turbomolecular pump'], ['First air puller', 'rotary pump'], ['Empty of air', 'vacuum'], ['Strong power box', 'high-voltage supply'],
+              ['Light that goes through bodies', 'X-rays']],
+      fine: 'This is the kind that shoots the bits through the thing. Another kind moves a thin point of bits back and forth over the outside of a thing and counts what bounces off. The outside is cut open here, and the bits are drawn far fewer and far slower than they are.'
     }
   };
-  var ORDER = ['jet', 'steam', 'rocket', 'dish'];
+  var ORDER = ['jet', 'steam', 'rocket', 'dish', 'scope'];
   function inst(id) {
     var d = DEFS[id];
     if (!d.m) {
